@@ -6,6 +6,7 @@ do SQLAlchemy fique visível para o Alembic.
 
 from app.models.base import Base, IntIdMixin, TimestampMixin
 from app.models.catalog import CatalogCard
+from app.models.catalog_sync import CatalogSync
 from app.models.copy import CardCopy, CardCopyGroup
 from app.models.deck import Deck, DeckCard
 from app.models.group import Group, GroupMember
@@ -18,6 +19,7 @@ __all__ = [
     "CardCopyGroup",
     "CardRequest",
     "CatalogCard",
+    "CatalogSync",
     "Deck",
     "DeckCard",
     "Group",

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     supabase_service_role_key: SecretStr = SecretStr("")
     supabase_jwt_secret: SecretStr = SecretStr("")
     supabase_jwks_url: str = ""
+    admin_email: str = ""
+    admin_password: SecretStr = SecretStr("")
     scryfall_api_url: str = "https://api.scryfall.com"
     scryfall_user_agent: str = "MagicBulkBackend/0.1"
 

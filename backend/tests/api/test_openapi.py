@@ -48,6 +48,15 @@ def test_openapi_exposes_domain_routes(client: TestClient) -> None:
     assert missing == set()
 
 
+def test_admin_routes_stay_out_of_the_docs(client: TestClient) -> None:
+    payload: object = client.get("/openapi.json").json()
+    assert isinstance(payload, dict)
+    paths: object = payload["paths"]
+    assert isinstance(paths, dict)
+
+    assert [path for path in paths if "/admin" in path] == []
+
+
 def test_domain_tables_are_registered() -> None:
     from app.models import Base
 

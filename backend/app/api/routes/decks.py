@@ -43,13 +43,13 @@ async def get_deck(deck_id: UUID, user: CurrentUser, session: DbSession) -> Deck
     return await deck_service.get_deck(session, user, deck_id)
 
 
-@router.patch("/decks/{deck_id}", response_model=DeckSummary)
+@router.patch("/decks/{deck_id}", response_model=DeckDetail)
 async def update_deck(
     deck_id: UUID,
     body: DeckUpdate,
     user: CurrentUser,
     session: DbSession,
-) -> DeckSummary:
+) -> DeckDetail:
     return await deck_service.update_deck(session, user, deck_id, body)
 
 

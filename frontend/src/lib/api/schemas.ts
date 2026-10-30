@@ -39,6 +39,8 @@ export const copyCatalogSchema = z.object({
   oracle_id: z.string(),
   name_en: z.string(),
   name_pt: z.string().nullable(),
+  image_url: z.string().nullable(),
+  mana_cost: z.string().nullable(),
   type_line: z.string().nullable(),
   color_identity: z.array(z.string()),
   is_basic: z.boolean(),

@@ -3,7 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.enums import DeckFormat, DeckRole
+from app.domain.enums import CommanderLegal, DeckFormat, DeckRole, PartnerKind
+from app.schemas.copies import CatalogRef, OpenRequestRef, PersonRef
 
 
 class DeckCreate(BaseModel):
@@ -23,7 +24,7 @@ class DeckUpdate(BaseModel):
 class DeckCopyCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    catalog_card_id: UUID
+    oracle_id: UUID
     quantity: int = Field(ge=1, le=100)
 
 
@@ -45,6 +46,14 @@ class MoveCard(BaseModel):
     target_deck_id: UUID
 
 
+class DeckCommanderRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name_en: str
+    name_pt: str | None
+    image_url: str | None
+
+
 class DeckSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -53,6 +62,15 @@ class DeckSummary(BaseModel):
     name: str
     format: DeckFormat
     created_at: datetime
+    color_identity: list[str] | None
+    color_identity_name: str | None
+    commanders: list[DeckCommanderRef]
+
+
+class DeckCatalogRef(CatalogRef):
+    commander_legal: CommanderLegal
+    can_be_commander: bool
+    partner_kind: PartnerKind | None
 
 
 class DeckCardRead(BaseModel):
@@ -60,11 +78,12 @@ class DeckCardRead(BaseModel):
 
     card_copy_id: UUID
     role: DeckRole
-    name_en: str
-    name_pt: str | None
-    price_cents: int | None
     locked: bool
-    is_basic: bool
+    price_cents: int | None
+    holder: PersonRef
+    catalog: DeckCatalogRef
+    open_request: OpenRequestRef | None
+    can_toggle_commander: bool
 
 
 class WarningRead(BaseModel):
@@ -84,6 +103,8 @@ class DeckDetail(BaseModel):
     name: str
     format: DeckFormat
     created_at: datetime
+    color_identity: list[str] | None
+    color_identity_name: str | None
     card_count: int
     main_price_cents: int
     commander_price_cents: int

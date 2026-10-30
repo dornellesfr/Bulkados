@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
@@ -8,10 +9,11 @@ import pytest
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import text
 
-from app.api.deps import get_auth_provider, get_price_provider
+from app.api.deps import get_auth_provider, get_catalog_source, get_price_provider
 from app.core.config import get_settings
 from app.core.database import engine
 from app.core.errors import InvalidCredentialsError, RegistrationRejectedError
+from app.domain.scryfall import CatalogDraft
 from app.integrations.auth import AuthSession
 from app.main import create_app
 from app.models import Base
@@ -64,6 +66,28 @@ class PriceStub:
         return self.cents
 
 
+class FakeCatalogSource:
+    """Acervo falso: o que ele entrega, se trava num portão e se falha ficam a cargo do teste."""
+
+    def __init__(self) -> None:
+        self.drafts: list[CatalogDraft] = []
+        self.names: list[tuple[UUID, str]] = []
+        self.gate: asyncio.Event | None = None
+        self.error: Exception | None = None
+
+    async def oracle_cards(self) -> AsyncIterator[CatalogDraft]:
+        if self.gate is not None:
+            await self.gate.wait()
+        if self.error is not None:
+            raise self.error
+        for draft in self.drafts:
+            yield draft
+
+    async def portuguese_names(self) -> AsyncIterator[tuple[UUID, str]]:
+        for pair in self.names:
+            yield pair
+
+
 def _token(user_id: UUID) -> str:
     encoded = jwt.encode(
         {
@@ -91,7 +115,16 @@ def prices() -> PriceStub:
 
 
 @pytest.fixture
-async def client(auth_provider: FakeAuth, prices: PriceStub) -> AsyncIterator[AsyncClient]:
+def catalog_source() -> FakeCatalogSource:
+    return FakeCatalogSource()
+
+
+@pytest.fixture
+async def client(
+    auth_provider: FakeAuth,
+    prices: PriceStub,
+    catalog_source: FakeCatalogSource,
+) -> AsyncIterator[AsyncClient]:
     os.environ["SUPABASE_URL"] = "https://example.supabase.co"
     os.environ["SUPABASE_JWT_SECRET"] = "test-secret"
     get_settings.cache_clear()
@@ -100,13 +133,14 @@ async def client(auth_provider: FakeAuth, prices: PriceStub) -> AsyncIterator[As
         await connection.execute(
             text(
                 "TRUNCATE requests, deck_cards, card_copy_groups, card_copies, "
-                "decks, group_members, groups, catalog_cards, users "
+                "decks, group_members, groups, catalog_cards, catalog_sync, users "
                 "RESTART IDENTITY CASCADE"
             )
         )
     application = create_app()
     application.dependency_overrides[get_auth_provider] = lambda: auth_provider
     application.dependency_overrides[get_price_provider] = lambda: prices
+    application.dependency_overrides[get_catalog_source] = lambda: catalog_source
     transport = ASGITransport(app=application)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         yield http

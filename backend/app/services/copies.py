@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -8,14 +9,23 @@ from sqlalchemy.orm import aliased
 
 from app.core.errors import DomainError
 from app.domain.cards import price_is_free_basic
-from app.domain.enums import CopyState
+from app.domain.enums import OPEN_REQUEST_STATUSES, CopyState
 from app.domain.pricing import PriceProvider
 from app.models.catalog import CatalogCard
 from app.models.copy import CardCopy, CardCopyGroup
 from app.models.deck import Deck
 from app.models.request import CardRequest
 from app.models.user import User
-from app.schemas.copies import BulkCopyCreate, CopyRead, CopyVisibility, ShareCopy
+from app.schemas.copies import (
+    BulkCopyCreate,
+    CatalogRef,
+    CopyDeckRef,
+    CopyRead,
+    CopyVisibility,
+    OpenRequestRef,
+    PersonRef,
+    ShareCopy,
+)
 from app.services.access import accepted_group_ids, is_accepted, require_accepted_group
 from app.services.copy_state import is_linked, lock_copy
 
@@ -32,7 +42,7 @@ async def create_bulk_copies(
     await require_accepted_group(session, group_id, user.id)
     holder = await _holder(session, user, body.holder_id)
     selected = await _selected_groups(session, user, holder, group_id, body.group_ids)
-    card = await _catalog_card(session, body.catalog_card_id)
+    card = await catalog_card_by_oracle(session, body.oracle_id)
     cents, fetched_at = await quote_price(card, prices)
     copies: list[CardCopy] = []
     for _ in range(body.quantity):
@@ -52,7 +62,7 @@ async def create_bulk_copies(
     for copy in copies:
         for selected_group_id in selected:
             session.add(CardCopyGroup(card_copy_id=copy.id, group_id=selected_group_id))
-    return [_copy_read(copy, card, holder, visibility="available") for copy in copies]
+    return [_copy_read(copy, card, holder, user, "available") for copy in copies]
 
 
 async def list_group_copies(
@@ -84,8 +94,19 @@ async def list_group_copies(
             for owner in await session.scalars(select(User).where(User.id.in_(owner_ids)))
         }
     visible_groups = set(await accepted_group_ids(session, user.id))
+    added_by = await _users_by_id(session, {copy.added_by_id for copy, _, _ in rows})
+    open_requests = await open_request_refs(session, [copy.id for copy, _, _ in rows])
     return [
-        _visible_copy(copy, card, holder_user, decks_by_id, owners, visible_groups)
+        _visible_copy(
+            copy,
+            card,
+            holder_user,
+            added_by[copy.added_by_id],
+            decks_by_id,
+            owners,
+            visible_groups,
+            open_requests.get(copy.id),
+        )
         for copy, card, holder_user in rows
     ]
 
@@ -108,8 +129,7 @@ async def share_copy(
     if await is_linked(session, copy.id, body.group_id):
         raise DomainError(409, "copy is already in this group")
     session.add(CardCopyGroup(card_copy_id=copy.id, group_id=body.group_id))
-    card = await _catalog_card(session, copy.catalog_card_id)
-    return await _read_known_copy(session, copy, card, user)
+    return await read_copy(session, copy)
 
 
 async def remove_copy(session: AsyncSession, user: User, copy_id: UUID) -> None:
@@ -140,10 +160,7 @@ async def refresh_price(
     cents, fetched_at = await quote_price(card, prices)
     copy.price_cents = cents
     copy.price_fetched_at = fetched_at
-    holder = await session.get(User, copy.holder_id)
-    if holder is None:
-        raise DomainError(404, "copy not found")
-    return await _read_known_copy(session, copy, card, holder)
+    return await read_copy(session, copy)
 
 
 async def quote_price(
@@ -200,6 +217,71 @@ async def _catalog_card(session: AsyncSession, catalog_card_id: UUID) -> Catalog
     return card
 
 
+async def catalog_card_by_oracle(session: AsyncSession, oracle_id: UUID) -> CatalogCard:
+    card = await session.scalar(select(CatalogCard).where(CatalogCard.oracle_id == oracle_id))
+    if card is None:
+        raise DomainError(404, "catalog card not found")
+    return card
+
+
+async def _user(session: AsyncSession, user_id: UUID) -> User:
+    user = await session.get(User, user_id)
+    if user is None:
+        raise DomainError(404, "copy not found")
+    return user
+
+
+async def _users_by_id(session: AsyncSession, user_ids: Iterable[UUID]) -> dict[UUID, User]:
+    wanted = set(user_ids)
+    if not wanted:
+        return {}
+    return {
+        user.id: user for user in await session.scalars(select(User).where(User.id.in_(wanted)))
+    }
+
+
+async def open_request_refs(
+    session: AsyncSession,
+    copy_ids: Iterable[UUID],
+) -> dict[UUID, OpenRequestRef]:
+    wanted = set(copy_ids)
+    if not wanted:
+        return {}
+    rows = await session.execute(
+        select(CardRequest, User)
+        .join(User, User.id == CardRequest.requester_id)
+        .where(
+            CardRequest.card_copy_id.in_(wanted),
+            CardRequest.status.in_(OPEN_REQUEST_STATUSES),
+        )
+    )
+    return {
+        request.card_copy_id: OpenRequestRef(
+            id=request.id,
+            status=request.status,
+            source=request.source,
+            requester=_person(requester),
+        )
+        for request, requester in rows.all()
+    }
+
+
+async def read_copy(session: AsyncSession, copy: CardCopy) -> CopyRead:
+    """Monta a cópia lida por quem age sobre ela (a casa, o dono do deck ou quem cadastrou)."""
+    card = await _catalog_card(session, copy.catalog_card_id)
+    holder = await _user(session, copy.holder_id)
+    added_by = await _user(session, copy.added_by_id)
+    deck = await session.get(Deck, copy.deck_id) if copy.deck_id is not None else None
+    owner = await _user(session, deck.owner_id) if deck is not None else None
+    open_request = (await open_request_refs(session, [copy.id])).get(copy.id)
+    visibility: CopyVisibility = "in_deck"
+    if copy.state is CopyState.available:
+        visibility = "available"
+    elif copy.state is CopyState.reserved:
+        visibility = "reserved"
+    return _copy_read(copy, card, holder, added_by, visibility, deck, owner, open_request)
+
+
 def _dedupe(group_ids: list[UUID]) -> list[UUID]:
     selected: list[UUID] = []
     for group_id in group_ids:
@@ -208,33 +290,44 @@ def _dedupe(group_ids: list[UUID]) -> list[UUID]:
     return selected
 
 
+def _person(user: User) -> PersonRef:
+    return PersonRef(id=user.id, nick=user.nick)
+
+
 def _copy_read(
     copy: CardCopy,
     card: CatalogCard,
     holder: User,
+    added_by: User,
     visibility: CopyVisibility,
     deck: Deck | None = None,
-    deck_owner_nick: str | None = None,
+    deck_owner: User | None = None,
+    open_request: OpenRequestRef | None = None,
 ) -> CopyRead:
-    visible_deck = deck if visibility == "in_deck" else None
+    visible_deck = None
+    if visibility == "in_deck" and deck is not None and deck_owner is not None:
+        visible_deck = CopyDeckRef(id=deck.id, name=deck.name, owner=_person(deck_owner))
     return CopyRead(
         id=copy.id,
-        catalog_card_id=card.id,
-        oracle_id=card.oracle_id,
-        name_en=card.name_en,
-        name_pt=card.name_pt,
-        type_line=card.type_line,
-        color_identity=list(card.color_identity),
-        is_basic=card.is_basic,
+        catalog=CatalogRef(
+            oracle_id=card.oracle_id,
+            name_en=card.name_en,
+            name_pt=card.name_pt,
+            image_url=card.image_url,
+            mana_cost=card.mana_cost,
+            type_line=card.type_line,
+            color_identity=list(card.color_identity),
+            is_basic=card.is_basic,
+        ),
+        holder=_person(holder),
+        added_by=_person(added_by),
         price_cents=copy.price_cents,
-        holder_id=holder.id,
-        holder_nick=holder.nick,
+        price_fetched_at=copy.price_fetched_at,
         state=copy.state,
         locked=copy.locked,
         visibility=visibility,
-        deck_id=visible_deck.id if visible_deck is not None else None,
-        deck_name=visible_deck.name if visible_deck is not None else None,
-        deck_owner_nick=deck_owner_nick if visible_deck is not None else None,
+        deck=visible_deck,
+        open_request=open_request,
     )
 
 
@@ -242,9 +335,11 @@ def _visible_copy(
     copy: CardCopy,
     card: CatalogCard,
     holder: User,
+    added_by: User,
     decks_by_id: dict[UUID, Deck],
     owners: dict[UUID, User],
     visible_groups: set[UUID],
+    open_request: OpenRequestRef | None,
 ) -> CopyRead:
     deck = decks_by_id.get(copy.deck_id) if copy.deck_id is not None else None
     visibility: CopyVisibility = "available"
@@ -256,29 +351,5 @@ def _visible_copy(
         visibility = "in_deck"
     else:
         visibility = "in_use_elsewhere"
-    owner_nick = None
-    if deck is not None:
-        owner = owners.get(deck.owner_id)
-        owner_nick = owner.nick if owner is not None else None
-    return _copy_read(copy, card, holder, visibility, deck, owner_nick)
-
-
-async def _read_known_copy(
-    session: AsyncSession,
-    copy: CardCopy,
-    card: CatalogCard,
-    holder: User,
-) -> CopyRead:
-    deck = await session.get(Deck, copy.deck_id) if copy.deck_id is not None else None
-    visibility: CopyVisibility = "available"
-    if copy.state is CopyState.available:
-        visibility = "available"
-    elif copy.state is CopyState.reserved:
-        visibility = "reserved"
-    else:
-        visibility = "in_deck"
-    owner_nick = None
-    if deck is not None:
-        owner = await session.get(User, deck.owner_id)
-        owner_nick = owner.nick if owner is not None else None
-    return _copy_read(copy, card, holder, visibility, deck, owner_nick)
+    owner = owners.get(deck.owner_id) if deck is not None else None
+    return _copy_read(copy, card, holder, added_by, visibility, deck, owner, open_request)

@@ -11,7 +11,10 @@ import { Loader2Icon } from 'lucide-react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
+import { CardThumb } from '@/components/cards/card-thumb'
 import { CardTitle } from '@/components/cards/card-title'
+import { ManaCost } from '@/components/cards/mana-cost'
+import { ColorIdentity } from '@/components/cards/color-identity'
 import { CatalogSearch } from '@/components/copies/catalog-search'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { PageHeader } from '@/components/layout/page-header'
@@ -189,7 +192,15 @@ export function DeckPage({
     <div className="flex flex-col gap-6">
       <PageHeader
         title={deck.name}
-        description={deckFormatLabel(deck.format)}
+        description={
+          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>{deckFormatLabel(deck.format)}</span>
+            <ColorIdentity
+              colors={deck.color_identity}
+              name={deck.color_identity_name}
+            />
+          </span>
+        }
         action={
           isOwner ? (
             <div className="flex flex-wrap gap-2">
@@ -230,7 +241,7 @@ export function DeckPage({
             setAddOpen(true)
           }}
         >
-          Cadastrar carta
+          Adicionar carta
         </Button>
       ) : null}
       {deck.cards.length === 0 ? (
@@ -435,45 +446,56 @@ function CardBlock({
                 key={card.card_copy_id}
                 className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
               >
-                <div className="flex flex-col gap-1">
-                  <CardTitle
-                    namePt={card.catalog.name_pt}
-                    nameEn={card.catalog.name_en}
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    {[
-                      card.catalog.type_line,
-                      formatColorIdentity(card.catalog.color_identity),
-                      `Casa ${card.holder.nick}`,
-                      formatCopyPrice(card.price_cents, card.catalog.is_basic),
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
-                  {card.catalog.partner_kind ? (
+                <div className="flex items-start gap-3">
+                  <CardThumb url={card.catalog.image_url} />
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <CardTitle
+                        namePt={card.catalog.name_pt}
+                        nameEn={card.catalog.name_en}
+                      />
+                      <ManaCost cost={card.catalog.mana_cost} />
+                    </div>
                     <p className="text-sm text-muted-foreground">
-                      {card.catalog.partner_kind}
+                      {[
+                        card.catalog.type_line,
+                        formatColorIdentity(card.catalog.color_identity),
+                        `Casa ${card.holder.nick}`,
+                        formatCopyPrice(
+                          card.price_cents,
+                          card.catalog.is_basic,
+                        ),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
                     </p>
-                  ) : null}
-                  <Badge variant="secondary">
-                    {card.locked ? 'Travada' : 'Destravada'}
-                  </Badge>
-                  <WarningLines messages={cardWarnings} />
+                    {card.catalog.partner_kind ? (
+                      <p className="text-sm text-muted-foreground">
+                        {card.catalog.partner_kind}
+                      </p>
+                    ) : null}
+                    <Badge variant="secondary">
+                      {card.locked ? 'Travada' : 'Destravada'}
+                    </Badge>
+                    <WarningLines messages={cardWarnings} />
+                  </div>
                 </div>
                 {isOwner ? (
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => {
-                        onCommander(card.card_copy_id)
-                      }}
-                    >
-                      {card.role === 'commander'
-                        ? 'Tirar de comandante'
-                        : 'Marcar comandante'}
-                    </Button>
+                    {card.can_toggle_commander ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => {
+                          onCommander(card.card_copy_id)
+                        }}
+                      >
+                        {card.role === 'commander'
+                          ? 'Tirar de comandante'
+                          : 'Marcar comandante'}
+                      </Button>
+                    ) : null}
                     {plan.buttons.slice(0, 1).map((action) => (
                       <Button
                         key={action}
@@ -659,8 +681,8 @@ function AddDeckCardDialog({
 
         onOpenChange(next)
       }}
-      title="Cadastrar no deck"
-      description="A carta nasce neste deck, travada, na sua casa."
+      title="Adicionar ao deck"
+      description="Se você já tem a carta livre no bulk, ela é travada neste deck. Se não, é cadastrada já aqui, travada, na sua casa."
     >
       {card ? (
         <form
@@ -718,7 +740,7 @@ function AddDeckCardDialog({
           </div>
         </form>
       ) : (
-        <CatalogSearch onSelect={setCard} />
+        <CatalogSearch deckId={deckId} onSelect={setCard} />
       )}
     </Dialog>
   )

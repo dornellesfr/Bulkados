@@ -17,6 +17,7 @@ class CatalogDraft:
     name_en: str
     name_pt: str | None
     mana_cost: str | None
+    image_url: str | None
     type_line: str
     oracle_text: str
     color_identity: tuple[str, ...]
@@ -26,6 +27,23 @@ class CatalogDraft:
     commander_legal: CommanderLegal
     can_be_commander: bool
     partner_kind: PartnerKind | None
+
+
+_NON_CARD_LAYOUTS = frozenset(
+    {"token", "double_faced_token", "emblem", "art_series", "vanguard", "scheme", "planar"}
+)
+
+
+def is_catalog_card(payload: Mapping[str, object]) -> bool:
+    """Carta de jogo: fora fichas, emblemas, artes e o que só existe no Arena ou similares.
+
+    O MTGO entra porque o arquivo traz uma impressão por carta e, às vezes, é a digital de uma
+    carta que também existe em papel (Strip Mine, Palinchron).
+    """
+    games = _string_list(payload, "games")
+    return ("paper" in games or "mtgo" in games) and (
+        _text(payload, "layout") not in _NON_CARD_LAYOUTS
+    )
 
 
 def catalog_draft_from_scryfall(payload: Mapping[str, object]) -> CatalogDraft | None:
@@ -44,15 +62,15 @@ def catalog_draft_from_scryfall(payload: Mapping[str, object]) -> CatalogDraft |
     mana_cost = _text(payload, "mana_cost") or _join_faces(faces, "mana_cost") or None
     keywords = tuple(_string_list(payload, "keywords"))
     color_identity = tuple(_string_list(payload, "color_identity"))
-    lang = _text(payload, "lang")
-    printed_name = _text(payload, "printed_name")
-    name_pt = printed_name if lang == "pt" and printed_name else None
+    printed_name = _printed_name(payload, faces) if _text(payload, "lang") == "pt" else ""
+    name_pt = printed_name if printed_name and printed_name != name_en else None
     legal = _commander_legal(payload)
     return CatalogDraft(
         oracle_id=oracle_id,
         name_en=name_en,
         name_pt=name_pt,
         mana_cost=mana_cost or None,
+        image_url=_image_url(payload, faces),
         type_line=type_line,
         oracle_text=oracle_text,
         color_identity=color_identity,
@@ -86,6 +104,21 @@ def _faces(payload: Mapping[str, object]) -> list[Mapping[str, object]]:
         if isinstance(item, dict):
             faces.append({str(key): value for key, value in item.items()})
     return faces
+
+
+def _printed_name(payload: Mapping[str, object], faces: list[Mapping[str, object]]) -> str:
+    name = _text(payload, "printed_name")
+    if name or not any(_text(face, "printed_name") for face in faces):
+        return name
+    return " // ".join(_text(face, "printed_name") or _text(face, "name") for face in faces)
+
+
+def _image_url(payload: Mapping[str, object], faces: list[Mapping[str, object]]) -> str | None:
+    for source in (payload, *faces):
+        uris = source.get("image_uris")
+        if isinstance(uris, dict) and isinstance(url := uris.get("normal"), str) and url:
+            return url
+    return None
 
 
 def _join_faces(faces: list[Mapping[str, object]], key: str) -> str:

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
+import { CardThumb } from '@/components/cards/card-thumb'
 import { CardTitle } from '@/components/cards/card-title'
+import { ManaCost } from '@/components/cards/mana-cost'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { catalogQueryOptions } from '@/lib/api/catalog'
@@ -11,8 +13,10 @@ import { formatColorIdentity } from '@/lib/display'
 
 export function CatalogSearch({
   onSelect,
+  deckId,
 }: {
   onSelect: (card: CatalogCard) => void
+  deckId?: string
 }) {
   const [text, setText] = useState('')
   const [q, setQ] = useState('')
@@ -20,7 +24,7 @@ export function CatalogSearch({
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       setQ(text.trim())
-    }, 300)
+    }, 150)
 
     return () => {
       window.clearTimeout(timeout)
@@ -28,7 +32,7 @@ export function CatalogSearch({
   }, [text])
 
   const query = useQuery({
-    ...catalogQueryOptions(q),
+    ...catalogQueryOptions(q, deckId),
     enabled: q.length >= 2,
   })
 
@@ -67,24 +71,26 @@ export function CatalogSearch({
             <li key={card.oracle_id}>
               <button
                 type="button"
-                className="flex w-full flex-col gap-1 rounded-lg px-2 py-2 text-left hover:bg-muted"
+                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted"
                 onClick={() => {
                   onSelect(card)
                 }}
               >
-                <CardTitle namePt={card.name_pt} nameEn={card.name_en} />
-                <p className="text-sm text-muted-foreground">
-                  {[
-                    card.mana_cost,
-                    card.type_line,
-                    formatColorIdentity(card.color_identity),
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
-                {card.is_basic ? (
-                  <Badge variant="secondary">Básica</Badge>
-                ) : null}
+                <CardThumb url={card.image_url} />
+                <div className="flex min-w-0 flex-col gap-1">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <CardTitle namePt={card.name_pt} nameEn={card.name_en} />
+                    <ManaCost cost={card.mana_cost} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {[card.type_line, formatColorIdentity(card.color_identity)]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                  {card.is_basic ? (
+                    <Badge variant="secondary">Básica</Badge>
+                  ) : null}
+                </div>
               </button>
             </li>
           ))}

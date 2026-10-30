@@ -48,6 +48,82 @@ def test_portuguese_print_keeps_the_english_name() -> None:
     assert draft.name_pt == "Raio"
 
 
+def test_takes_the_image_from_the_card_or_from_its_first_face() -> None:
+    single = catalog_draft_from_scryfall(
+        {
+            "oracle_id": "00000000-0000-0000-0000-000000000008",
+            "name": "Sol Ring",
+            "type_line": "Artifact",
+            "image_uris": {"normal": "https://cards.example/sol-ring.jpg"},
+        }
+    )
+    double = catalog_draft_from_scryfall(
+        {
+            "oracle_id": "00000000-0000-0000-0000-000000000009",
+            "name": "Delver of Secrets // Insectile Aberration",
+            "card_faces": [
+                {
+                    "name": "Delver of Secrets",
+                    "image_uris": {"normal": "https://cards.example/front.jpg"},
+                },
+                {
+                    "name": "Insectile Aberration",
+                    "image_uris": {"normal": "https://cards.example/back.jpg"},
+                },
+            ],
+        }
+    )
+    without_image = catalog_draft_from_scryfall(
+        {"oracle_id": "00000000-0000-0000-0000-00000000000a", "name": "Plain Card"}
+    )
+
+    assert single is not None and single.image_url == "https://cards.example/sol-ring.jpg"
+    assert double is not None and double.image_url == "https://cards.example/front.jpg"
+    assert without_image is not None and without_image.image_url is None
+
+
+def test_portuguese_name_of_a_double_faced_card_joins_the_faces() -> None:
+    draft = catalog_draft_from_scryfall(
+        {
+            "oracle_id": "00000000-0000-0000-0000-00000000000b",
+            "name": "Delver of Secrets // Insectile Aberration",
+            "lang": "pt",
+            "card_faces": [
+                {"name": "Delver of Secrets", "printed_name": "Explorador de Segredos"},
+                {"name": "Insectile Aberration", "printed_name": "Aberração Insetoide"},
+            ],
+        }
+    )
+
+    assert draft is not None
+    assert draft.name_pt == "Explorador de Segredos // Aberração Insetoide"
+
+
+def test_portuguese_name_equal_to_the_english_one_is_dropped() -> None:
+    untranslated = catalog_draft_from_scryfall(
+        {
+            "oracle_id": "00000000-0000-0000-0000-00000000000c",
+            "name": "Delver of Secrets // Insectile Aberration",
+            "lang": "pt",
+            "card_faces": [
+                {"name": "Delver of Secrets", "printed_name": "Delver of Secrets"},
+                {"name": "Insectile Aberration", "printed_name": "Insectile Aberration"},
+            ],
+        }
+    )
+    english = catalog_draft_from_scryfall(
+        {
+            "oracle_id": "00000000-0000-0000-0000-00000000000d",
+            "name": "Sol Ring",
+            "lang": "en",
+            "printed_name": "Sol Ring",
+        }
+    )
+
+    assert untranslated is not None and untranslated.name_pt is None
+    assert english is not None and english.name_pt is None
+
+
 def test_derives_commander_pairing_and_basic_land() -> None:
     basic = catalog_draft_from_scryfall(
         {

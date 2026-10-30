@@ -45,7 +45,9 @@ Endpoints:
 
 ### users
 
-`id` uuid, `email`, `nick`, `nick_normalized` único, `created_at`.
+`id` uuid, `email`, `nick`, `nick_normalized` único, `level` (0 é admin, 1 é usuário comum, o padrão do cadastro público), `created_at`.
+
+O admin `bulkados` é criado na subida do backend, se ainda não existir, com `ADMIN_EMAIL` e `ADMIN_PASSWORD` (em desenvolvimento, sem senha configurada, vale `@bulkados1234`). O nick `bulkados` é reservado no cadastro público. `POST /admin/users` cria usuário, com `level` opcional.
 
 ### groups
 
@@ -59,11 +61,15 @@ Dono é membro `accepted`. Só gente `accepted` vê e mexe no grupo.
 
 ### catalog_cards
 
-Cache do que já foi buscado no Scryfall. Não é a cópia física.
+Acervo das cartas do Scryfall, uma linha por Oracle ID. Não é a cópia física. É carregado inteiro pela atualização do acervo (veja `catalog_sync`); antes da primeira carga, a busca ainda grava aqui o que encontra no Scryfall.
 
-`oracle_id` único, `name_en`, `name_pt` nulo se o Scryfall não tiver impressão em português, `type_line`, `oracle_text`, `color_identity`, `keywords`, `is_basic`, `any_number_allowed`, `commander_legal` (`legal`, `banned`, `not_legal`), `can_be_commander`, `partner_kind` nulo ou um de `partner`, `partner_with`, `friends_forever`, `background`, `choose_a_background`, `doctors_companion`.
+`oracle_id` único, `name_en`, `name_pt` nulo se o Scryfall não tiver impressão em português, `search_en` e `search_pt` (o nome sem acento, em minúsculas e sem pontuação, indexados para a busca por prefixo), `mana_cost` nulo, `image_url` nulo (a imagem `normal` do Scryfall, só o link), `type_line`, `oracle_text`, `color_identity`, `keywords`, `is_basic`, `any_number_allowed`, `commander_legal` (`legal`, `banned`, `not_legal`), `can_be_commander`, `partner_kind` nulo ou um de `partner`, `partner_with`, `friends_forever`, `background`, `choose_a_background`, `doctors_companion`.
 
 `can_be_commander` é verdadeiro para criatura lendária e para carta cujo texto permite ser comandante. O pareamento (Partner, Background, etc.) fica em `partner_kind`, lido das keywords e do oracle text em inglês do Scryfall. A interface mostra o nome em português quando existir e o nome em inglês como alternativa.
+
+### catalog_sync
+
+Uma única linha (`id = 1`) com o estado da atualização do acervo: `interval_days` (padrão 90), `last_synced_at` nulo até a primeira carga, `running_since` (preenchido enquanto uma atualização roda, e dado como morto depois de 1 hora) e `last_error` (o último erro, ou nulo).
 
 ### card_copies
 
@@ -151,7 +157,7 @@ Não há expulsão. Quem fica com o papel é quem sai, pelos vínculos acima.
 
 ### Cadastrar no bulk
 
-Corpo: carta do catálogo, quantidade, casa opcional, grupos.
+Corpo: `oracle_id` (a carta do acervo, achada por ele; 404 se não existir), `quantity`, `holder_id` opcional (a casa) e `group_ids` opcional.
 
 A casa padrão é o usuário atual. Outra casa tem de ser membro `accepted` dos grupos escolhidos. Quem cadastra também. Os grupos escolhidos ficam em `card_copy_groups`. Se a casa é o próprio usuário e ele não manda grupos, vincula todos os grupos dele.
 
@@ -159,9 +165,9 @@ Quantidade cria N cópias iguais, cada uma com o preço daquela consulta. Uma fa
 
 Cópia nasce `available`.
 
-### Cadastrar direto no deck
+### Adicionar no deck
 
-Corpo: carta do catálogo, `deck_id`. Quantidade permitida. A casa é sempre quem cadastra. A cópia nasce `in_deck`, `locked` verdadeiro, no deck informado, com `role` `main`. Também vincula os outros grupos da casa, onde aparece travada.
+Corpo: `oracle_id` e `quantity`; o deck vem da URL. Primeiro trava, no deck, as cópias `available` dessa carta cuja casa é quem adiciona e que estão vinculadas ao grupo do deck, da mais antiga para a mais nova. Se faltar, cadastra o resto já no deck. Todas ficam `in_deck`, `locked` verdadeiro, com `role` `main`. As cadastradas aqui também vinculam os outros grupos da casa, onde aparecem travadas, e ficam livres de novo se forem devolvidas ao bulk. Recusa com 409 se a identidade de cor da carta não cabe na do deck.
 
 ### Compartilhar com outro grupo
 
@@ -219,7 +225,11 @@ Só a casa, só `available`. Apaga vínculos, a cópia e nada de deck. Pedido en
 
 ### Marcar comandante
 
-O dono do deck define quais cartas do deck têm `role=commander`. O backend não recusa uma combinação inválida. A leitura do deck devolve os avisos.
+O dono do deck define quais cartas do deck têm `role=commander`. O backend recusa com 409 a carta que não pode ser comandante e o par que não é válido (Partner com Partner, Partner with citando o outro, Friends forever, Choose a Background com Background, Doctor com Doctor's companion). Mais de dois comandantes também. Recusa com 409, listando as cartas, se alguma outra carta do deck ficaria fora da identidade de cor dos comandantes escolhidos; a lista vazia sempre vale. As outras regras do deck seguem só como aviso na leitura.
+
+Cada carta do deck traz `can_toggle_commander`: marcar (ou tirar) aquela carta deixaria o conjunto de comandantes válido? A tela usa isso para oferecer o botão.
+
+A identidade de cor do deck é a união da dos comandantes e vem em `color_identity` (na ordem branco, azul, preto, vermelho, verde; lista vazia é incolor; nulo é deck sem comandante) e `color_identity_name`. Ao adicionar, pegar do bulk, mover ou solicitar uma carta para um deck com comandante, a carta cuja identidade sai da do deck é recusada com 409.
 
 ## Avisos do deck
 
@@ -257,7 +267,15 @@ A resposta do deck inclui `card_count`, `main_price_cents`, `commander_price_cen
 
 ## Catálogo e preço
 
-Busca: `GET /catalog/cards?q=`. O backend consulta o Scryfall com o termo, em inglês e em português, e devolve nome nos dois idiomas, `oracle_id`, custo, tipo, identidade de cor e se é básica. Grava ou atualiza `catalog_cards`. User-Agent identificável e respeito ao limite do Scryfall (abaixo de 10 requisições por segundo).
+Busca: `GET /catalog/cards?q=`. Lê o acervo local, sem chamar o Scryfall. O termo é normalizado (sem acento, minúsculas, sem pontuação) e procurado nos nomes em inglês e em português. A ordem é: nome igual ao termo, nome que começa com o termo, nome com uma palavra que começa com o termo. No máximo 20 itens. Com `deck_id` (um deck do próprio usuário), só entram cartas cuja identidade de cor cabe na do deck. Cada item traz `id`, `oracle_id`, `name_en`, `name_pt`, `mana_cost`, `image_url`, `type_line`, `color_identity` e `is_basic`. Enquanto o acervo nunca foi carregado, a busca ainda consulta o Scryfall ao vivo, em inglês e em português, e grava o que encontra.
+
+Atualização do acervo: a carga lê o arquivo `oracle_cards` do Scryfall (uma carta por Oracle ID, só cartas de jogo que existem em papel ou no MTGO) e os nomes em português pela busca paginada `lang:pt`. Repetir a carga só atualiza: nunca troca o `id` nem apaga carta, então as cópias seguem apontando para a carta certa. Ela roda na primeira subida do backend e depois sempre que `interval_days` vence (conferência a cada 6 horas), em segundo plano. User-Agent identificável, intervalo entre requisições abaixo de 10 por segundo, e o 429 do Scryfall é tratado esperando o `Retry-After`.
+
+Endpoints de administração (nível 0, fora do `/docs`, o frontend não chama):
+
+- `GET /admin/catalog/sync`: `interval_days`, `last_synced_at`, `running`, `last_error`.
+- `POST /admin/catalog/sync-interval` `{ "days": 1 a 3650 }`.
+- `POST /admin/catalog/sync`: força a atualização. 202, ou 409 se já houver uma rodando.
 
 Preço: porta interna `PriceProvider.lowest_brl_cents(name_en) -> int | None`. A implementação de referência é o menor preço da LigaMagic. Não há API pública oficial; o adaptador fica atrás dessa porta e só entra quando a forma de acesso for permitida pela LigaMagic. Sem adaptador, o método devolve vazio.
 
@@ -293,7 +311,7 @@ Decks:
 - `GET /decks/{id}` cartas, comandantes, contagens, preços e avisos
 - `PATCH /decks/{id}` nome ou formato
 - `DELETE /decks/{id}` devolve as cartas ao bulk, livres, na casa atual
-- `POST /decks/{id}/commanders` `{ card_copy_ids }` substitui o conjunto de comandantes
+- `POST /decks/{id}/commanders` `{ card_copy_ids }` substitui o conjunto de comandantes; 409 se a escolha não é válida
 - `POST /decks/{id}/take` `{ card_copy_id }` pegar na hora o que já está na sua casa
 - `POST /decks/{id}/copies` cadastra direto no deck
 - `POST /decks/{id}/cards/{card_copy_id}/move` `{ target_deck_id }`
@@ -311,6 +329,14 @@ Pedidos:
 - `GET /groups/{id}/handoffs` duas listas, `to_bring` e `to_receive`, só daquele grupo
 
 `to_bring` são pedidos `awaiting_handoff` em que `holder_id` é o usuário. `to_receive` são pedidos abertos em que `requester_id` é o usuário, com o status para a interface mostrar “esperando aceite” ou “esperando a carta”.
+
+### Formato das respostas
+
+É o formato que o frontend valida (`frontend/src/lib/api`). Os testes de `tests/integration/test_contract.py` travam as chaves; mudar um lado sem o outro quebra a tela.
+
+- Cópia (`POST` e `GET /groups/{id}/copies`, `refresh-price`, `take`, `move`, `return`, `lock`, `unlock`): `id`, `catalog` (`oracle_id`, `name_en`, `name_pt`, `image_url`, `mana_cost`, `type_line`, `color_identity`, `is_basic`), `holder` e `added_by` (`id`, `nick`), `price_cents`, `price_fetched_at`, `state`, `locked`, `visibility`, `deck` (`id`, `name`, `owner`) ou nulo, `open_request` (`id`, `status`, `source`, `requester`) ou nulo.
+- Deck (`GET` e `PATCH /decks/{id}`): `id`, `group_id`, `name`, `format`, `owner_id`, `color_identity`, `color_identity_name`, `card_count`, `main_price_cents`, `commander_price_cents`, `warnings` e `cards`. Cada carta traz `card_copy_id`, `role`, `locked`, `price_cents`, `holder`, `catalog` (os campos acima mais `commander_legal`, `can_be_commander`, `partner_kind`), `open_request` e `can_toggle_commander`. O resumo do deck (`GET /groups/{id}/decks`) traz `color_identity`, `color_identity_name` e `commanders` (cada um com `name_en`, `name_pt` e `image_url`).
+- Encontros: `to_bring` com `id`, `source`, `catalog` (`name_en`, `name_pt`), `requester` e `target_deck` (`id`, `name`); `to_receive` com `id`, `source`, `catalog`, `status`, `holder` e `target_deck`.
 
 ## Ordem de implementação
 

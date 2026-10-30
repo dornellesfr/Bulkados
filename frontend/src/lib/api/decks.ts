@@ -25,12 +25,22 @@ export const deckCardSchema = z.object({
   holder: personSchema,
   catalog: deckCatalogSchema,
   open_request: openRequestSchema.nullable(),
+  can_toggle_commander: z.boolean(),
+})
+
+export const deckCommanderSchema = z.object({
+  name_en: z.string(),
+  name_pt: z.string().nullable(),
+  image_url: z.string().nullable(),
 })
 
 export const deckSummarySchema = z.object({
   id: z.string(),
   name: z.string(),
   format: deckFormatSchema,
+  color_identity: z.array(z.string()).nullable(),
+  color_identity_name: z.string().nullable(),
+  commanders: z.array(deckCommanderSchema),
 })
 
 export const deckDetailSchema = z.object({
@@ -39,6 +49,8 @@ export const deckDetailSchema = z.object({
   name: z.string(),
   format: deckFormatSchema,
   owner_id: z.string(),
+  color_identity: z.array(z.string()).nullable(),
+  color_identity_name: z.string().nullable(),
   card_count: z.number().int(),
   main_price_cents: z.number().int(),
   commander_price_cents: z.number().int(),
