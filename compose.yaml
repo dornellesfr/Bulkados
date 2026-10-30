@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:17
+    container_name: magic-bulk-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: magic_bulk
+    ports:
+      - "5432:5432"
+    volumes:
+      - magic_bulk_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d magic_bulk"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  magic_bulk_postgres:
