@@ -64,6 +64,15 @@ Além do tamanho e do preço, o deck avisa as regras do Commander usual, sem blo
 
 Lands básicas contam nas 100 cartas, custam zero e podem repetir o nome.
 
+### Comandante e identidade de cor
+
+Duas regras bloqueiam, porque o resto do deck depende delas:
+
+- só uma carta que pode ser comandante vira comandante: criatura lendária, planeswalker ou carta cujo texto diz que pode ser o comandante. Dois comandantes só valem como uma dupla válida: Partner, Partner with (cada um citando o outro), Friends forever, Choose a Background com um Background, ou Doctor com Doctor's companion. A tela oferece "Marcar comandante" só quando a escolha fica válida, e a API recusa o resto;
+- a identidade de cor do deck é a união das cores dos comandantes. Com comandante, o app recusa a carta cuja identidade sai dela: ao adicionar, pegar do bulk, mover de outro deck ou solicitar. Sem comandante, não há limite. Carta incolor cabe em qualquer deck.
+
+A identidade aparece com os ícones das cores e o nome da combinação (Azorius, Bant, Mono-verde, Incolor, Cinco cores). Incolor é só do deck cujo comandante não tem cor, como Karn ou Ullamog. Marcar comandante também respeita a identidade: se o deck tem carta fora da identidade que os comandantes passariam a ter, o app recusa e diz quais cartas atrapalham. Tirar todos os comandantes sempre é possível, e sem comandante não há limite.
+
 ## Como a carta entra no deck
 
 Há quatro caminhos. Em todos, a trava vale para todos os grupos daquela cópia.
@@ -72,9 +81,9 @@ Há quatro caminhos. Em todos, a trava vale para todos os grupos daquela cópia.
 
 Se a casa da cópia é você e ela está livre no bulk, você coloca no seu deck na hora. Ela sai do monte disponível e nasce travada.
 
-### Direto no seu deck
+### Adicionando no seu deck
 
-Você cadastra a cópia já no seu deck, sem passar pelo bulk. A casa é você. Ela nasce travada. Nos outros grupos seus ela aparece travada.
+Você pesquisa a carta e adiciona ao deck. Se você já tem uma cópia livre dela na sua casa, no bulk deste grupo, o app trava essa cópia no deck. Se não tem, cadastra a cópia já no deck. A casa é você e ela nasce travada. Nos outros grupos seus ela aparece travada. A busca dentro do deck só sugere cartas que cabem na identidade de cor dele.
 
 ### No bulk, na casa de outra pessoa
 
@@ -126,4 +135,4 @@ Com a cópia livre no bulk, a pessoa da casa remove o registro quando o papel sa
 
 ## O que fica de fora
 
-O app não cobra, não calcula frete e não organiza partida. Não bloqueia deck ilegal: mostra o aviso e a pessoa decide. Não exige que quem está com a carta no bulk aceite o pedido.
+O app não cobra, não calcula frete e não organiza partida. Fora a escolha do comandante e a identidade de cor, não bloqueia deck ilegal: mostra o aviso e a pessoa decide. Não exige que quem está com a carta no bulk aceite o pedido.

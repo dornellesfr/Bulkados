@@ -8,6 +8,7 @@ from app.core.errors import (
     InvalidCredentialsError,
     RegistrationRejectedError,
 )
+from app.domain.identity import ADMIN_NICK, USER_LEVEL
 from app.integrations.auth import AuthProvider, AuthSession
 from app.models.user import User
 from app.schemas.auth import (
@@ -24,11 +25,12 @@ from app.schemas.auth import (
 FORGOT_MESSAGE = "If an account exists, password reset instructions were sent."
 
 
-async def register(
+async def create_user(
     session: AsyncSession,
     auth: AuthProvider,
     body: RegisterRequest,
-) -> RegisterResponse:
+    level: int = USER_LEVEL,
+) -> User:
     normalized = body.nick.lower()
     taken = await session.scalar(select(User.id).where(User.nick_normalized == normalized))
     if taken is not None:
@@ -40,7 +42,13 @@ async def register(
     except AuthProviderUnavailableError as exc:
         raise DomainError(503, "authentication provider unavailable") from exc
 
-    user = User(id=user_id, email=body.email, nick=body.nick, nick_normalized=normalized)
+    user = User(
+        id=user_id,
+        email=body.email,
+        nick=body.nick,
+        nick_normalized=normalized,
+        level=level,
+    )
     try:
         async with session.begin_nested():
             session.add(user)
@@ -48,7 +56,17 @@ async def register(
     except IntegrityError:
         await auth.delete_user(user_id)
         raise DomainError(409, "nick already taken") from None
+    return user
 
+
+async def register(
+    session: AsyncSession,
+    auth: AuthProvider,
+    body: RegisterRequest,
+) -> RegisterResponse:
+    if body.nick.lower() == ADMIN_NICK:
+        raise DomainError(409, "nick already taken")
+    user = await create_user(session, auth, body)
     tokens = await _sign_in(auth, body.email, body.password)
     return RegisterResponse(
         id=user.id,

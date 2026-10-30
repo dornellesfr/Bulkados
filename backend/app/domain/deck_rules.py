@@ -72,6 +72,43 @@ def evaluate_deck(cards: Sequence[DeckCardFact], deck_format: DeckFormat) -> Dec
     )
 
 
+def commander_set_error(commanders: Sequence[DeckCardFact]) -> str | None:
+    """Por que este conjunto não pode ser o(s) comandante(s) do deck; None se pode."""
+    if not commanders:
+        return None
+    if len(commanders) == 1:
+        if commanders[0].can_be_commander:
+            return None
+        return "Esta carta não pode ser comandante."
+    if _pairing_is_valid(commanders):
+        return None
+    return (
+        "Estes comandantes não formam uma dupla válida "
+        "(Partner, Partner with, Friends forever, Choose a Background ou Doctor's companion)."
+    )
+
+
+def cards_outside_identity(
+    commanders: Sequence[DeckCardFact],
+    others: Sequence[DeckCardFact],
+) -> list[DeckCardFact]:
+    """As cartas cuja identidade de cor sai da união das cores dos comandantes."""
+    allowed = {color.upper() for card in commanders for color in card.color_identity}
+    return [
+        card for card in others if not {color.upper() for color in card.color_identity} <= allowed
+    ]
+
+
+def can_toggle_commander(card: DeckCardFact, cards: Sequence[DeckCardFact]) -> bool:
+    """Marcar (ou tirar) esta carta de comandante deixaria o conjunto válido?"""
+    current = [other for other in cards if other.role is DeckRole.commander]
+    if card.role is DeckRole.commander:
+        resulting = [other for other in current if other.card_copy_id != card.card_copy_id]
+    else:
+        resulting = [*current, card]
+    return commander_set_error(resulting) is None
+
+
 def _priced_sum(cards: Sequence[DeckCardFact]) -> int:
     return sum(card.price_cents for card in cards if card.price_cents is not None)
 

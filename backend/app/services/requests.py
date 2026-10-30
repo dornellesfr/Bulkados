@@ -20,7 +20,16 @@ from app.models.copy import CardCopy
 from app.models.deck import Deck, DeckCard
 from app.models.request import CardRequest
 from app.models.user import User
-from app.schemas.requests import HandoffLists, RequestCreate, RequestRead
+from app.schemas.copies import PersonRef
+from app.schemas.requests import (
+    CatalogName,
+    DeckBrief,
+    HandoffBring,
+    HandoffLists,
+    HandoffReceive,
+    RequestCreate,
+    RequestRead,
+)
 from app.services.access import accepted_group_ids, require_accepted_group, require_deck_owner
 from app.services.copy_state import (
     is_linked,
@@ -28,6 +37,7 @@ from app.services.copy_state import (
     release_after_requester_cancel,
     sync_holder_groups,
 )
+from app.services.deck_identity import ensure_fits_identity
 
 
 async def create_request(
@@ -40,6 +50,10 @@ async def create_request(
     copy = await lock_copy(session, body.card_copy_id)
     if copy is None or not await is_linked(session, copy.id, deck.group_id):
         raise DomainError(404, "copy not found")
+    card = await session.get(CatalogCard, copy.catalog_card_id)
+    if card is None:
+        raise DomainError(404, "catalog card not found")
+    await ensure_fits_identity(session, deck, card)
     if copy.state is CopyState.available:
         if copy.holder_id == user.id:
             raise DomainError(409, "card copy is not available")
@@ -176,7 +190,29 @@ async def handoffs(session: AsyncSession, user: User, group_id: UUID) -> Handoff
         requester_id=user.id,
         statuses=set(OPEN_REQUEST_STATUSES),
     )
-    return HandoffLists(to_bring=to_bring, to_receive=to_receive)
+    return HandoffLists(
+        to_bring=[
+            HandoffBring(
+                id=item.id,
+                source=item.source,
+                catalog=CatalogName(name_en=item.name_en, name_pt=item.name_pt),
+                requester=PersonRef(id=item.requester_id, nick=item.requester_nick),
+                target_deck=DeckBrief(id=item.target_deck_id, name=item.target_deck_name),
+            )
+            for item in to_bring
+        ],
+        to_receive=[
+            HandoffReceive(
+                id=item.id,
+                source=item.source,
+                catalog=CatalogName(name_en=item.name_en, name_pt=item.name_pt),
+                status=item.status,
+                holder=PersonRef(id=item.holder_id, nick=item.holder_nick),
+                target_deck=DeckBrief(id=item.target_deck_id, name=item.target_deck_name),
+            )
+            for item in to_receive
+        ],
+    )
 
 
 async def _owned_source_request(

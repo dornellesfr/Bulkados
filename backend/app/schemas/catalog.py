@@ -11,6 +11,7 @@ class CatalogCardRead(BaseModel):
     name_en: str
     name_pt: str | None
     mana_cost: str | None
+    image_url: str | None
     type_line: str
     color_identity: list[str]
     is_basic: bool

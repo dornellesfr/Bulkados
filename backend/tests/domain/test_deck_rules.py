@@ -1,6 +1,12 @@
 from uuid import UUID, uuid4
 
-from app.domain.deck_rules import DeckCardFact, evaluate_deck
+from app.domain.deck_rules import (
+    DeckCardFact,
+    can_toggle_commander,
+    cards_outside_identity,
+    commander_set_error,
+    evaluate_deck,
+)
 from app.domain.enums import CommanderLegal, DeckFormat, DeckRole, PartnerKind
 
 
@@ -293,3 +299,58 @@ def test_two_legendary_creatures_without_partner_warn() -> None:
 
     assert "commander_pairing" in codes([left, right])
     assert isinstance(left.card_copy_id, UUID)
+
+
+def legend(name: str, **kwargs: object) -> DeckCardFact:
+    return card(name=name, commander=True, type_line="Legendary Creature — Human", **kwargs)  # type: ignore[arg-type]
+
+
+def test_a_single_commander_must_be_eligible() -> None:
+    assert commander_set_error([]) is None
+    assert commander_set_error([legend("Azula")]) is None
+    assert commander_set_error([card(name="Sol Ring")]) == "Esta carta não pode ser comandante."
+
+
+def test_two_commanders_must_form_a_valid_pair() -> None:
+    partner_a = legend("Partner A", partner=PartnerKind.partner)
+    partner_b = legend("Partner B", partner=PartnerKind.partner)
+    plain = legend("Plain")
+    creature = legend("Creature", partner=PartnerKind.choose_a_background)
+    background = card(
+        name="Background",
+        partner=PartnerKind.background,
+        type_line="Legendary Enchantment — Background",
+    )
+
+    assert commander_set_error([partner_a, partner_b]) is None
+    assert commander_set_error([creature, background]) is None
+    assert commander_set_error([partner_a, plain]) is not None
+    assert commander_set_error([plain, legend("Other")]) is not None
+    assert commander_set_error([background]) is not None
+    assert commander_set_error([partner_a, partner_b, legend("Third")]) is not None
+
+
+def test_toggle_is_offered_only_when_the_result_stays_valid() -> None:
+    azula = legend("Azula", role=DeckRole.commander)
+    partner = legend("Partner", partner=PartnerKind.partner)
+    sol_ring = card(name="Sol Ring")
+    deck = [azula, partner, sol_ring]
+
+    assert can_toggle_commander(azula, deck) is True
+    assert can_toggle_commander(partner, deck) is False
+    assert can_toggle_commander(sol_ring, deck) is False
+    assert can_toggle_commander(sol_ring, [partner, sol_ring]) is False
+    assert can_toggle_commander(partner, [partner, sol_ring]) is True
+
+
+def test_cards_outside_the_commanders_identity_are_found() -> None:
+    azula = legend("Azula", role=DeckRole.commander, colors=("U", "B", "R"))
+    blue = card(name="Counterspell", colors=("U",))
+    green = card(name="Llanowar Elves", colors=("G",))
+    colorless = card(name="Sol Ring")
+    gold = card(name="Esper Charm", colors=("W", "U", "B"))
+
+    outside = cards_outside_identity([azula], [blue, green, colorless, gold])
+
+    assert [found.name_en for found in outside] == ["Llanowar Elves", "Esper Charm"]
+    assert cards_outside_identity([legend("Karn")], [colorless]) == []

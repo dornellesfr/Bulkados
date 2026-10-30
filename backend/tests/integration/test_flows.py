@@ -18,6 +18,12 @@ async def register(client: AsyncClient, nick: str) -> dict[str, object]:
     return obj(response)
 
 
+def holder_nick(copy: dict[str, object]) -> object:
+    holder = copy["holder"]
+    assert isinstance(holder, dict)
+    return holder["nick"]
+
+
 async def create_group(client: AsyncClient, token: object, name: str = "Mesa") -> dict[str, object]:
     response = await client.post(
         "/api/v1/groups",
@@ -46,7 +52,7 @@ async def insert_catalog(name: str, *, basic: bool = False) -> str:
         )
         session.add(card)
         await session.commit()
-        return str(card.id)
+        return str(card.oracle_id)
 
 
 @pytest.mark.integration
@@ -158,10 +164,10 @@ async def test_second_bulk_request_conflicts(client: AsyncClient) -> None:
             f"/api/v1/invitations/{obj(invited)['invitation_id']}/accept",
             headers=bearer(person["access_token"]),
         )
-    catalog_id = await insert_catalog("Sol Ring")
+    oracle_id = await insert_catalog("Sol Ring")
     created = await client.post(
         f"/api/v1/groups/{group['id']}/copies",
-        json={"catalog_card_id": catalog_id, "quantity": 1},
+        json={"oracle_id": oracle_id, "quantity": 1},
         headers=bearer(ada["access_token"]),
     )
     copy_id = rows(created)[0]["id"]
@@ -226,11 +232,11 @@ async def test_lock_is_visible_from_another_group(client: AsyncClient) -> None:
             headers=bearer(grace["access_token"]),
         )
     )
-    catalog_id = await insert_catalog("Sol Ring")
+    oracle_id = await insert_catalog("Sol Ring")
     created = rows(
         await client.post(
             f"/api/v1/decks/{ada_deck['id']}/copies",
-            json={"catalog_card_id": catalog_id, "quantity": 1},
+            json={"oracle_id": oracle_id, "quantity": 1},
             headers=bearer(ada["access_token"]),
         )
     )
@@ -259,7 +265,7 @@ async def test_lock_is_visible_from_another_group(client: AsyncClient) -> None:
 
     assert blocked.status_code == 409
     assert visible[0]["visibility"] == "in_use_elsewhere"
-    assert visible[0]["deck_id"] is None
+    assert visible[0]["deck"] is None
     assert opened.status_code == 201
     assert obj(opened)["status"] == "pending_acceptance"
 
@@ -279,15 +285,15 @@ async def test_leaving_takes_only_cards_from_the_leavers_house(client: AsyncClie
         f"/api/v1/invitations/{obj(invited)['invitation_id']}/accept",
         headers=bearer(grace["access_token"]),
     )
-    catalog_id = await insert_catalog("Sol Ring")
+    oracle_id = await insert_catalog("Sol Ring")
     await client.post(
         f"/api/v1/groups/{shared['id']}/copies",
-        json={"catalog_card_id": catalog_id, "quantity": 1},
+        json={"oracle_id": oracle_id, "quantity": 1},
         headers=bearer(ada["access_token"]),
     )
     await client.post(
         f"/api/v1/groups/{shared['id']}/copies",
-        json={"catalog_card_id": catalog_id, "quantity": 1},
+        json={"oracle_id": oracle_id, "quantity": 1},
         headers=bearer(grace["access_token"]),
     )
 
@@ -310,8 +316,8 @@ async def test_leaving_takes_only_cards_from_the_leavers_house(client: AsyncClie
     groups = rows(await client.get("/api/v1/groups", headers=bearer(grace["access_token"])))
 
     assert left.status_code == 204
-    assert [copy["holder_nick"] for copy in shared_copies] == ["grace"]
-    assert [copy["holder_nick"] for copy in private_copies] == ["ada"]
+    assert [holder_nick(copy) for copy in shared_copies] == ["grace"]
+    assert [holder_nick(copy) for copy in private_copies] == ["ada"]
     shared_group = next(group for group in groups if group["id"] == shared["id"])
     assert shared_group["owner_id"] == grace["id"]
 
@@ -331,10 +337,10 @@ async def test_commander_10_over_budget_warns_and_keeps_the_deck(
         )
     )
     prices.cents = 1500
-    catalog_id = await insert_catalog("Sol Ring")
+    oracle_id = await insert_catalog("Sol Ring")
     created = await client.post(
         f"/api/v1/decks/{deck['id']}/copies",
-        json={"catalog_card_id": catalog_id, "quantity": 1},
+        json={"oracle_id": oracle_id, "quantity": 1},
         headers=bearer(ada["access_token"]),
     )
     detail = obj(
@@ -363,11 +369,11 @@ async def test_basic_land_is_free_and_skips_the_price_provider(
     ada = await register(client, "ada")
     group = await create_group(client, ada["access_token"])
     prices.cents = 999
-    catalog_id = await insert_catalog("Island", basic=True)
+    oracle_id = await insert_catalog("Island", basic=True)
     created = rows(
         await client.post(
             f"/api/v1/groups/{group['id']}/copies",
-            json={"catalog_card_id": catalog_id, "quantity": 2},
+            json={"oracle_id": oracle_id, "quantity": 2},
             headers=bearer(ada["access_token"]),
         )
     )

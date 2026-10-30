@@ -1,6 +1,7 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,13 +9,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.database import engine
+from app.services import catalog_control
+from app.services.admin_bootstrap import bootstrap_admin
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    background = [
+        asyncio.create_task(bootstrap_admin()),
+        asyncio.create_task(catalog_control.run_scheduler()),
+    ]
     yield
+    for task in background:
+        task.cancel()
+    for task in background:
+        with suppress(asyncio.CancelledError):
+            await task
+    await catalog_control.stop_syncs()
     await engine.dispose()
 
 

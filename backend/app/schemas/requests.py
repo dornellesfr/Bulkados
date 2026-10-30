@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from app.domain.enums import RequestSource, RequestStatus
+from app.schemas.copies import PersonRef
 
 
 class RequestCreate(BaseModel):
@@ -33,8 +34,43 @@ class RequestRead(BaseModel):
     resolved_at: datetime | None
 
 
+class CatalogName(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name_en: str
+    name_pt: str | None
+
+
+class DeckBrief(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    name: str
+
+
+class HandoffBring(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    source: RequestSource
+    catalog: CatalogName
+    requester: PersonRef
+    target_deck: DeckBrief
+
+
+class HandoffReceive(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    source: RequestSource
+    catalog: CatalogName
+    status: RequestStatus
+    holder: PersonRef
+    target_deck: DeckBrief
+
+
 class HandoffLists(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    to_bring: list[RequestRead]
-    to_receive: list[RequestRead]
+    to_bring: list[HandoffBring]
+    to_receive: list[HandoffReceive]

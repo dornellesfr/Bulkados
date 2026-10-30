@@ -1,5 +1,9 @@
 import re
 
+ADMIN_LEVEL = 0
+USER_LEVEL = 1
+ADMIN_NICK = "bulkados"
+
 NICK_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,20}$")
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
