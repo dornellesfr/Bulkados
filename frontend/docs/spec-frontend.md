@@ -114,7 +114,7 @@ Aceitar e recusar usam esse `id`. Sem essa rota, a etapa de grupos entrega criar
 
 ### Catálogo
 
-`GET /catalog/cards?q=`. Cada item: `oracle_id`, `name_en`, `name_pt` nulo, `mana_cost` nulo, `type_line` nulo, `color_identity` (lista), `is_basic`.
+`GET /catalog/cards?q=`. Cada item: `oracle_id`, `name_en`, `name_pt` nulo, `mana_cost` nulo, `image_url` nulo (link da imagem da carta), `type_line` nulo, `color_identity` (lista), `is_basic`. A API devolve no máximo 20 itens, por prefixo do nome em português ou inglês, sem diferenciar acento nem maiúscula.
 
 A busca dispara com pelo menos 2 caracteres, com debounce, e cancela a request anterior. Campo vazio não chama a API.
 
@@ -276,11 +276,13 @@ Cabeçalho: nome, formato, contagem, orçamento, avisos. Renomear e trocar forma
 
 Dois blocos, comandantes e o restante, pela `role`. Carta sem preço mostra "sem preço". Aviso com `card_copy_id` repete na linha da carta.
 
-Marcar comandante manda a lista inteira de `card_copy_ids` que devem ficar com `role` `commander`. Tirar o último manda `[]`. A API pode aceitar uma combinação inválida; a tela deixa e mostra `commander_pairing`.
+Marcar comandante manda a lista inteira de `card_copy_ids` que devem ficar com `role` `commander`. Tirar o último manda `[]`. O botão só aparece na carta com `can_toggle_commander`; a API recusa com 409 o comandante inválido.
+
+A linha do deck na lista do grupo mostra a foto e o nome dos `commanders` (ou "Sem comandante"). O cabeçalho do deck e a linha do deck na lista do grupo mostram `color_identity` com os ícones das cores (símbolos do Scryfall; lista vazia usa o símbolo de incolor) e `color_identity_name`. Cada carta do deck tem a foto de `catalog.image_url`.
 
 Adicionar tem dois caminhos, os dois a partir desta tela:
 
-- Cadastrar direto: a mesma busca de catálogo e a quantidade. `POST /decks/{id}/copies`. A carta nasce no deck, travada.
+- Adicionar carta: a mesma busca de catálogo, com `deck_id`, e a quantidade. `POST /decks/{id}/copies`. A API trava a cópia livre da casa no bulk, se houver, e cadastra o resto já no deck, travado.
 - Pegar do bulk o que já está na casa da pessoa continua sendo ação da linha livre no bulk, com este deck como destino. Se ela abrir o deck e ainda não tem carta, o texto aponta para o bulk.
 
 Mover lista os outros decks da pessoa. A API não tem um deck global: o diálogo busca `GET /groups/{id}/decks` em cada grupo de `GET /groups`. Destino no mesmo deck não aparece. Comandante no deck de origem volta a `main`; a pessoa marca de novo se quiser. A tela diz isso antes de confirmar.

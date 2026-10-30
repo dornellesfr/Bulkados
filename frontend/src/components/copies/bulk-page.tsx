@@ -1,11 +1,14 @@
 import { useState } from 'react'
+import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
 import {
   useQuery,
   useQueryClient,
   useSuspenseQuery,
 } from '@tanstack/react-query'
 
+import { CardThumb } from '@/components/cards/card-thumb'
 import { CardTitle } from '@/components/cards/card-title'
+import { ManaCost } from '@/components/cards/mana-cost'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { RegisterCopyDialog } from '@/components/copies/register-copy-dialog'
 import { CreateDeckDialog } from '@/components/decks/create-deck-dialog'
@@ -48,6 +51,7 @@ import {
   planBulkActions,
 } from '@/lib/copy-actions'
 import type { CopyAction } from '@/lib/copy-actions'
+import { groupCopies, summarizeStates } from '@/lib/copy-groups'
 import { formatColorIdentity } from '@/lib/display'
 import { formatCopyPrice } from '@/lib/money'
 
@@ -79,6 +83,8 @@ export function BulkPage({
   const { data: copies } = useSuspenseQuery(copiesQueryOptions(groupId))
   const { data: decks } = useSuspenseQuery(decksQueryOptions(groupId))
   const visible = filterCopies(copies, search)
+  const groups = groupCopies(visible)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [registerOpen, setRegisterOpen] = useState(false)
   const [shareTarget, setShareTarget] = useState<Copy | null>(null)
   const [removeTarget, setRemoveTarget] = useState<Copy | null>(null)
@@ -196,6 +202,90 @@ export function BulkPage({
     }
   }
 
+  function toggle(oracleId: string) {
+    setExpanded((current) => {
+      const next = new Set(current)
+
+      if (next.has(oracleId)) {
+        next.delete(oracleId)
+      } else {
+        next.add(oracleId)
+      }
+
+      return next
+    })
+  }
+
+  function renderCopy(copy: Copy) {
+    const plan = planBulkActions(copy, me.id)
+    const state = copyStateText(copy)
+    const showActions = plan.buttons.length > 0 || plan.menu.length > 0
+
+    return (
+      <li
+        key={copy.id}
+        className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
+      >
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span>{state.label}</span>
+            {state.detail ? <span>{state.detail}</span> : null}
+            {state.badge ? (
+              <Badge variant="secondary">{state.badge}</Badge>
+            ) : null}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {[
+              `Casa ${copy.holder.nick}`,
+              formatCopyPrice(copy.price_cents, copy.catalog.is_basic),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        </div>
+        {showActions ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {plan.buttons.slice(0, 1).map((action) => (
+              <Button
+                key={action}
+                type="button"
+                disabled={busy != null}
+                onClick={() => {
+                  perform(copy, action)
+                }}
+              >
+                {copyActionLabel[action]}
+              </Button>
+            ))}
+            {plan.buttons.slice(1).map((action) => (
+              <Button
+                key={action}
+                type="button"
+                variant="outline"
+                disabled={busy != null}
+                onClick={() => {
+                  perform(copy, action)
+                }}
+              >
+                {copyActionLabel[action]}
+              </Button>
+            ))}
+            <ActionMenu
+              items={plan.menu.map((action) => ({
+                id: action,
+                label: copyActionLabel[action],
+                destructive: action === 'remove',
+                onSelect: () => {
+                  perform(copy, action)
+                },
+              }))}
+            />
+          </div>
+        ) : null}
+      </li>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -258,77 +348,56 @@ export function BulkPage({
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {visible.map((copy) => {
-            const plan = planBulkActions(copy, me.id)
-            const state = copyStateText(copy)
-            const showActions = plan.buttons.length > 0 || plan.menu.length > 0
+          {groups.map((group) => {
+            const single = group.copies.length === 1
+            const open = single || expanded.has(group.oracleId)
 
             return (
               <li
-                key={copy.id}
+                key={group.oracleId}
                 className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
               >
-                <div className="flex flex-col gap-1">
-                  <CardTitle
-                    namePt={copy.catalog.name_pt}
-                    nameEn={copy.catalog.name_en}
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    {[
-                      copy.catalog.type_line,
-                      formatColorIdentity(copy.catalog.color_identity),
-                      `Casa ${copy.holder.nick}`,
-                      formatCopyPrice(copy.price_cents, copy.catalog.is_basic),
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span>{state.label}</span>
-                    {state.detail ? <span>{state.detail}</span> : null}
-                    {state.badge ? (
-                      <Badge variant="secondary">{state.badge}</Badge>
-                    ) : null}
+                <div className="flex items-center gap-3">
+                  <CardThumb url={group.catalog.image_url} />
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <CardTitle
+                        namePt={group.catalog.name_pt}
+                        nameEn={group.catalog.name_en}
+                      />
+                      <ManaCost cost={group.catalog.mana_cost} />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {[
+                        group.catalog.type_line,
+                        formatColorIdentity(group.catalog.color_identity),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                    {single ? null : (
+                      <p className="text-sm">{summarizeStates(group.copies)}</p>
+                    )}
                   </div>
+                  {single ? null : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-expanded={open}
+                      aria-label={`${open ? 'Recolher' : 'Expandir'} ${group.copies.length} cópias`}
+                      onClick={() => {
+                        toggle(group.oracleId)
+                      }}
+                    >
+                      ×{group.copies.length}
+                      {open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+                    </Button>
+                  )}
                 </div>
-                {showActions ? (
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    {plan.buttons.slice(0, 1).map((action) => (
-                      <Button
-                        key={action}
-                        type="button"
-                        disabled={busy != null}
-                        onClick={() => {
-                          perform(copy, action)
-                        }}
-                      >
-                        {copyActionLabel[action]}
-                      </Button>
-                    ))}
-                    {plan.buttons.slice(1).map((action) => (
-                      <Button
-                        key={action}
-                        type="button"
-                        variant="outline"
-                        disabled={busy != null}
-                        onClick={() => {
-                          perform(copy, action)
-                        }}
-                      >
-                        {copyActionLabel[action]}
-                      </Button>
-                    ))}
-                    <ActionMenu
-                      items={plan.menu.map((action) => ({
-                        id: action,
-                        label: copyActionLabel[action],
-                        destructive: action === 'remove',
-                        onSelect: () => {
-                          perform(copy, action)
-                        },
-                      }))}
-                    />
-                  </div>
+                {open ? (
+                  <ul className="flex flex-col divide-y divide-foreground/10">
+                    {group.copies.map((copy) => renderCopy(copy))}
+                  </ul>
                 ) : null}
               </li>
             )
