@@ -67,8 +67,10 @@ uv run alembic revision --autogenerate -m "descricao"
 uv run alembic upgrade head
 ```
 
-Rotas que gravam dados devem chamar `commit` na sessão. A dependência `DbSession` abre e fecha a sessão do request.
+A dependência `DbSession` abre a sessão do request e confirma a transação se a rota terminar sem erro.
 
 ## Variáveis de ambiente
 
 O arquivo `.env.example` lista os valores locais. `DATABASE_URL` usa o driver `postgresql+asyncpg`.
+
+Auth fica no Supabase. O backend precisa da URL, da chave anônima, da service role e de um JWT secret ou JWKS para validar o access token. A service role só existe no processo do backend.
