@@ -1,7 +1,9 @@
+name: bulkados
+
 services:
   db:
     image: postgres:17
-    container_name: magic-bulk-db
+    container_name: bulkados-db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -16,5 +18,43 @@ services:
       timeout: 5s
       retries: 10
 
+  backend:
+    image: ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+    container_name: bulkados-backend
+    working_dir: /app
+    entrypoint: ["sh", "-c"]
+    command:
+      - uv sync --all-groups && uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+      - backend_venv:/app/.venv
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/magic_bulk
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: oven/bun:1.4.4
+    container_name: bulkados-frontend
+    working_dir: /app
+    entrypoint: ["sh", "-c"]
+    command:
+      - bun install && bun run dev -- --host 0.0.0.0
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://127.0.0.1:8000
+    depends_on:
+      - backend
+
 volumes:
   magic_bulk_postgres:
+  backend_venv:
+  frontend_node_modules:
