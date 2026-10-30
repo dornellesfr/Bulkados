@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, MetaData, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -20,12 +20,20 @@ class IntIdMixin:
     id: Mapped[int] = mapped_column(primary_key=True)
 
 
-class TimestampMixin:
+def utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+class CreatedAtMixin:
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
+        default=utcnow,
         server_default=func.now(),
         nullable=False,
     )
+
+
+class TimestampMixin(CreatedAtMixin):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

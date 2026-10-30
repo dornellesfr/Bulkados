@@ -24,6 +24,11 @@ SessionFactory: async_sessionmaker[AsyncSession] = async_sessionmaker(
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
-    """Abre uma sessão por request. Quem altera dados precisa dar commit."""
+    """Abre uma sessão por request e confirma a transação quando não há erro."""
     async with SessionFactory() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
