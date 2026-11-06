@@ -8,6 +8,7 @@ import type { ErrorComponentProps } from '@tanstack/react-router'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { ApiError } from '@/lib/api/client'
 
 export function RoutePending() {
   return (
@@ -27,9 +28,22 @@ export function RouteError({ error, reset }: ErrorComponentProps) {
   const router = useRouter()
   const queryErrorResetBoundary = useQueryErrorResetBoundary()
 
+  const expired = error instanceof ApiError && error.status === 401
+
   useEffect(() => {
     queryErrorResetBoundary.reset()
   }, [queryErrorResetBoundary])
+
+  useEffect(() => {
+    if (!expired || router.state.location.pathname === '/entrar') {
+      return
+    }
+
+    void router.navigate({
+      to: '/entrar',
+      search: { redirect: router.state.location.href },
+    })
+  }, [expired, router])
 
   const message = isCancelledError(error)
     ? 'Não foi possível concluir. Tente de novo.'

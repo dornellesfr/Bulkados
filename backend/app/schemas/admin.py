@@ -15,7 +15,6 @@ class AdminUserRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    nick: str
     email: str
     level: int
 

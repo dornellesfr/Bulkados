@@ -1,8 +1,8 @@
-# Magic Bulk
+# bulkados
 
 Frontend do Bulkados. A interface mostra o estado que a API devolve e dispara as transições que a API já definiu.
 
-Na raiz do repositório, `docker compose up` sobe esta interface junto com a API e o Postgres. Para rodar só o frontend, os scripts abaixo assumem que a API já está em `http://127.0.0.1:8000`.
+Na raiz do repositório, `docker compose up` sobe esta interface junto com a API. Para rodar só o frontend, os scripts abaixo assumem que a API já está em `http://127.0.0.1:8000`.
 
 ## Stack
 

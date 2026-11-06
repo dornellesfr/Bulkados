@@ -23,8 +23,7 @@ class FakeAuth:
     def __init__(self) -> None:
         self.users: dict[str, tuple[str, UUID]] = {}
 
-    async def sign_up(self, email: str, password: str, nick: str) -> UUID:
-        del nick
+    async def sign_up(self, email: str, password: str) -> UUID:
         if email in self.users:
             raise RegistrationRejectedError
         user_id = uuid4()
@@ -51,6 +50,18 @@ class FakeAuth:
 
     async def request_password_reset(self, email: str) -> None:
         del email
+
+    async def update_password(self, access_token: str, new_password: str) -> None:
+        payload = jwt.decode(access_token, options={"verify_signature": False})
+        subject = payload.get("sub")
+        if not isinstance(subject, str):
+            raise InvalidCredentialsError
+        user_id = UUID(subject)
+        for email, record in self.users.items():
+            if record[1] == user_id:
+                self.users[email] = (new_password, user_id)
+                return
+        raise InvalidCredentialsError
 
     async def delete_user(self, user_id: UUID) -> None:
         self.users = {email: record for email, record in self.users.items() if record[1] != user_id}

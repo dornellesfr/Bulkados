@@ -18,5 +18,5 @@ async def ready(session: DbSession) -> ReadinessResponse:
     try:
         await session.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
-        raise HTTPException(status_code=503, detail="database unavailable") from exc
+        raise HTTPException(status_code=503, detail="O banco está indisponível.") from exc
     return ReadinessResponse(status="ok", database="ok")

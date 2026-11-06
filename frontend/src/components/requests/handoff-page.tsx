@@ -12,6 +12,7 @@ import {
   handoffsQueryOptions,
 } from '@/lib/api/requests'
 import type { HandoffReceive } from '@/lib/api/requests'
+import { personName } from '@/lib/api/schemas'
 import { sourceLabel } from '@/lib/display'
 
 export function HandoffPage({ groupId }: { groupId: string }) {
@@ -55,9 +56,11 @@ export function HandoffPage({ groupId }: { groupId: string }) {
                   namePt={item.catalog.name_pt}
                   nameEn={item.catalog.name_en}
                 />
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {item.requester.nick} · {item.target_deck.name} ·{' '}
-                  {sourceLabel(item.source)}
+                <p className="mt-1 text-sm break-all text-muted-foreground">
+                  Pedido de {personName(item.requester)}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {item.target_deck.name}, {sourceLabel(item.source)}
                 </p>
               </li>
             ))}
@@ -156,7 +159,7 @@ function ReceiveRow({
         </p>
         <p className="text-sm">
           {item.status === 'pending_acceptance'
-            ? `Esperando aceite de ${item.holder.nick}`
+            ? `Esperando aceite de ${personName(item.holder)}`
             : 'Esperando a carta'}
         </p>
       </div>

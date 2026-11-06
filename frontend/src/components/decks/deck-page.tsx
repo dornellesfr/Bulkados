@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { meQueryOptions } from '@/lib/api/auth'
+import { personName } from '@/lib/api/schemas'
 import type { CatalogCard } from '@/lib/api/catalog'
 import { refreshCopyPrice, shareCopy } from '@/lib/api/copies'
 import {
@@ -460,7 +461,7 @@ function CardBlock({
                       {[
                         card.catalog.type_line,
                         formatColorIdentity(card.catalog.color_identity),
-                        `Casa ${card.holder.nick}`,
+                        `Casa ${personName(card.holder)}`,
                         formatCopyPrice(
                           card.price_cents,
                           card.catalog.is_basic,

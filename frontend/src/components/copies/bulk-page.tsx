@@ -1,5 +1,10 @@
 import { useState } from 'react'
-import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  LayoutGridIcon,
+  ListIcon,
+} from 'lucide-react'
 import {
   useQuery,
   useQueryClient,
@@ -27,7 +32,12 @@ import {
   refreshCopyPrice,
   shareCopy,
 } from '@/lib/api/copies'
-import type { BulkSearch, Copy, CopyVisibility } from '@/lib/api/copies'
+import type {
+  BulkSearch,
+  BulkView,
+  Copy,
+  CopyVisibility,
+} from '@/lib/api/copies'
 import {
   decksQueryOptions,
   listDecks,
@@ -38,6 +48,7 @@ import {
   unlockDeckCard,
 } from '@/lib/api/decks'
 import { groupsQueryOptions } from '@/lib/api/groups'
+import { personName } from '@/lib/api/schemas'
 import { invalidateBoard, reportBoardError } from '@/lib/api/invalidate'
 import {
   acceptRequest,
@@ -52,8 +63,9 @@ import {
 } from '@/lib/copy-actions'
 import type { CopyAction } from '@/lib/copy-actions'
 import { groupCopies, summarizeStates } from '@/lib/copy-groups'
-import { formatColorIdentity } from '@/lib/display'
+import { formatColorIdentity, isLegendary } from '@/lib/display'
 import { formatCopyPrice } from '@/lib/money'
+import { cn } from '@/lib/utils'
 
 const visibilityOptions: Array<{ value: CopyVisibility | ''; label: string }> =
   [
@@ -83,7 +95,7 @@ export function BulkPage({
   const { data: copies } = useSuspenseQuery(copiesQueryOptions(groupId))
   const { data: decks } = useSuspenseQuery(decksQueryOptions(groupId))
   const visible = filterCopies(copies, search)
-  const groups = groupCopies(visible)
+  const view: BulkView = search.vista === 'lista' ? 'lista' : 'cartas'
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [registerOpen, setRegisterOpen] = useState(false)
   const [shareTarget, setShareTarget] = useState<Copy | null>(null)
@@ -216,76 +228,6 @@ export function BulkPage({
     })
   }
 
-  function renderCopy(copy: Copy) {
-    const plan = planBulkActions(copy, me.id)
-    const state = copyStateText(copy)
-    const showActions = plan.buttons.length > 0 || plan.menu.length > 0
-
-    return (
-      <li
-        key={copy.id}
-        className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0"
-      >
-        <div className="flex flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span>{state.label}</span>
-            {state.detail ? <span>{state.detail}</span> : null}
-            {state.badge ? (
-              <Badge variant="secondary">{state.badge}</Badge>
-            ) : null}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {[
-              `Casa ${copy.holder.nick}`,
-              formatCopyPrice(copy.price_cents, copy.catalog.is_basic),
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
-        </div>
-        {showActions ? (
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {plan.buttons.slice(0, 1).map((action) => (
-              <Button
-                key={action}
-                type="button"
-                disabled={busy != null}
-                onClick={() => {
-                  perform(copy, action)
-                }}
-              >
-                {copyActionLabel[action]}
-              </Button>
-            ))}
-            {plan.buttons.slice(1).map((action) => (
-              <Button
-                key={action}
-                type="button"
-                variant="outline"
-                disabled={busy != null}
-                onClick={() => {
-                  perform(copy, action)
-                }}
-              >
-                {copyActionLabel[action]}
-              </Button>
-            ))}
-            <ActionMenu
-              items={plan.menu.map((action) => ({
-                id: action,
-                label: copyActionLabel[action],
-                destructive: action === 'remove',
-                onSelect: () => {
-                  perform(copy, action)
-                },
-              }))}
-            />
-          </div>
-        ) : null}
-      </li>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -301,108 +243,78 @@ export function BulkPage({
           </Button>
         }
       />
-      <form
-        className="flex flex-col gap-2 sm:flex-row"
-        onSubmit={(event) => {
-          event.preventDefault()
-          const formData = new FormData(event.currentTarget)
-          const q = String(formData.get('q') ?? '').trim()
-          onSearchChange({
-            ...search,
-            ...(q ? { q } : { q: undefined }),
-          })
-        }}
-      >
-        <Input
-          name="q"
-          defaultValue={search.q ?? ''}
-          placeholder="Filtrar por nome"
-          aria-label="Filtrar por nome"
-        />
-        <NativeSelect
-          aria-label="Estado"
-          value={search.estado ?? ''}
-          onChange={(event) => {
-            const estado = event.target.value as CopyVisibility | ''
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <form
+          className="flex w-full min-w-0 flex-1 flex-col gap-2 sm:w-auto sm:flex-row"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const formData = new FormData(event.currentTarget)
+            const q = String(formData.get('q') ?? '').trim()
             onSearchChange({
               ...search,
-              estado: estado || undefined,
+              ...(q ? { q } : { q: undefined }),
             })
           }}
         >
-          {visibilityOptions.map((option) => (
-            <option key={option.label} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </NativeSelect>
-        <Button type="submit" variant="outline">
-          Filtrar
-        </Button>
-      </form>
+          <Input
+            name="q"
+            defaultValue={search.q ?? ''}
+            placeholder="Filtrar por nome"
+            aria-label="Filtrar por nome"
+          />
+          <NativeSelect
+            aria-label="Estado"
+            value={search.estado ?? ''}
+            onChange={(event) => {
+              const estado = event.target.value as CopyVisibility | ''
+              onSearchChange({
+                ...search,
+                estado: estado || undefined,
+              })
+            }}
+          >
+            {visibilityOptions.map((option) => (
+              <option key={option.label} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </NativeSelect>
+          <Button type="submit" variant="outline">
+            Filtrar
+          </Button>
+        </form>
+        <OrganizationToggle
+          view={view}
+          onChange={(vista) => {
+            onSearchChange({
+              ...search,
+              vista: vista === 'lista' ? 'lista' : undefined,
+            })
+          }}
+        />
+      </div>
       {visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           {copies.length === 0
             ? 'Nenhuma carta neste grupo.'
             : 'Nenhuma carta com esse filtro.'}
         </p>
+      ) : view === 'lista' ? (
+        <BulkList
+          copies={visible}
+          expanded={expanded}
+          meId={me.id}
+          busy={busy}
+          onToggle={toggle}
+          onPerform={perform}
+        />
       ) : (
-        <ul className="flex flex-col gap-3">
-          {groups.map((group) => {
-            const single = group.copies.length === 1
-            const open = single || expanded.has(group.oracleId)
-
-            return (
-              <li
-                key={group.oracleId}
-                className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
-              >
-                <div className="flex items-center gap-3">
-                  <CardThumb url={group.catalog.image_url} />
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <CardTitle
-                        namePt={group.catalog.name_pt}
-                        nameEn={group.catalog.name_en}
-                      />
-                      <ManaCost cost={group.catalog.mana_cost} />
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {[
-                        group.catalog.type_line,
-                        formatColorIdentity(group.catalog.color_identity),
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
-                    {single ? null : (
-                      <p className="text-sm">{summarizeStates(group.copies)}</p>
-                    )}
-                  </div>
-                  {single ? null : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      aria-expanded={open}
-                      aria-label={`${open ? 'Recolher' : 'Expandir'} ${group.copies.length} cópias`}
-                      onClick={() => {
-                        toggle(group.oracleId)
-                      }}
-                    >
-                      ×{group.copies.length}
-                      {open ? <ChevronDownIcon /> : <ChevronRightIcon />}
-                    </Button>
-                  )}
-                </div>
-                {open ? (
-                  <ul className="flex flex-col divide-y divide-foreground/10">
-                    {group.copies.map((copy) => renderCopy(copy))}
-                  </ul>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
+        <BulkGrid
+          copies={visible}
+          meId={me.id}
+          busy={busy}
+          onPerform={perform}
+        />
       )}
       <RegisterCopyDialog
         open={registerOpen}
@@ -562,6 +474,314 @@ export function BulkPage({
         }}
       />
     </div>
+  )
+}
+
+function OrganizationToggle({
+  view,
+  onChange,
+}: {
+  view: BulkView
+  onChange: (view: BulkView) => void
+}) {
+  const options = [
+    { id: 'cartas' as const, label: 'Cartas', icon: LayoutGridIcon },
+    { id: 'lista' as const, label: 'Lista', icon: ListIcon },
+  ]
+
+  return (
+    <div
+      role="group"
+      aria-label="Organização"
+      className="flex shrink-0 self-end sm:self-auto"
+    >
+      {options.map((option) => {
+        const Icon = option.icon
+        const selected = view === option.id
+
+        return (
+          <Button
+            key={option.id}
+            type="button"
+            variant="outline"
+            aria-pressed={selected}
+            className={cn(
+              option.id === 'cartas'
+                ? 'rounded-r-none'
+                : '-ml-px rounded-l-none',
+              selected && 'bg-muted',
+            )}
+            onClick={() => {
+              onChange(option.id)
+            }}
+          >
+            <Icon />
+            {option.label}
+          </Button>
+        )
+      })}
+    </div>
+  )
+}
+
+function CopyActionButtons({
+  copy,
+  meId,
+  busy,
+  onPerform,
+  stretch = false,
+}: {
+  copy: Copy
+  meId: string
+  busy: string | null
+  onPerform: (copy: Copy, action: CopyAction) => void
+  stretch?: boolean
+}) {
+  const plan = planBulkActions(copy, meId)
+
+  if (plan.buttons.length === 0 && plan.menu.length === 0) {
+    return null
+  }
+
+  return (
+    <div
+      className={cn(
+        'flex flex-wrap items-center gap-2',
+        stretch ? 'w-full' : 'shrink-0 justify-end',
+      )}
+    >
+      {plan.buttons.slice(0, 1).map((action) => (
+        <Button
+          key={action}
+          type="button"
+          className={
+            stretch ? 'h-auto min-w-0 flex-1 whitespace-normal py-1' : undefined
+          }
+          disabled={busy != null}
+          onClick={() => {
+            onPerform(copy, action)
+          }}
+        >
+          {copyActionLabel[action]}
+        </Button>
+      ))}
+      {plan.buttons.slice(1).map((action) => (
+        <Button
+          key={action}
+          type="button"
+          variant="outline"
+          disabled={busy != null}
+          onClick={() => {
+            onPerform(copy, action)
+          }}
+        >
+          {copyActionLabel[action]}
+        </Button>
+      ))}
+      <ActionMenu
+        items={plan.menu.map((action) => ({
+          id: action,
+          label: copyActionLabel[action],
+          destructive: action === 'remove',
+          onSelect: () => {
+            onPerform(copy, action)
+          },
+        }))}
+      />
+    </div>
+  )
+}
+
+function CopyFacts({ copy }: { copy: Copy }) {
+  const state = copyStateText(copy)
+
+  return (
+    <div className="flex min-w-48 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+      <span>{state.label}</span>
+      {state.detail ? <span>{state.detail}</span> : null}
+      {state.badge ? <Badge variant="secondary">{state.badge}</Badge> : null}
+      <span className="text-muted-foreground">
+        Casa {personName(copy.holder)}
+      </span>
+      <span className="text-muted-foreground">
+        {formatCopyPrice(copy.price_cents, copy.catalog.is_basic)}
+      </span>
+    </div>
+  )
+}
+
+function BulkList({
+  copies,
+  expanded,
+  meId,
+  busy,
+  onToggle,
+  onPerform,
+}: {
+  copies: Array<Copy>
+  expanded: Set<string>
+  meId: string
+  busy: string | null
+  onToggle: (oracleId: string) => void
+  onPerform: (copy: Copy, action: CopyAction) => void
+}) {
+  const groups = groupCopies(copies)
+
+  return (
+    <ul className="flex flex-col gap-2">
+      {groups.map((group) => {
+        const single = group.copies.length === 1
+        const open = single || expanded.has(group.oracleId)
+        const only = single ? group.copies[0] : null
+
+        return (
+          <li
+            key={group.oracleId}
+            className="rounded-xl bg-card px-3 py-2 ring-1 ring-foreground/10"
+          >
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <CardThumb url={group.catalog.image_url} />
+              <div className="flex min-w-0 flex-1 basis-52 items-start gap-2">
+                <CardTitle
+                  namePt={group.catalog.name_pt}
+                  nameEn={group.catalog.name_en}
+                />
+                <ManaCost cost={group.catalog.mana_cost} />
+              </div>
+              <p className="min-w-36 flex-1 text-sm text-muted-foreground">
+                {[
+                  group.catalog.type_line,
+                  formatColorIdentity(group.catalog.color_identity),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+              {only ? (
+                <CopyFacts copy={only} />
+              ) : (
+                <p className="min-w-36 flex-1 text-sm">
+                  {summarizeStates(group.copies)}
+                </p>
+              )}
+              {only ? (
+                <CopyActionButtons
+                  copy={only}
+                  meId={meId}
+                  busy={busy}
+                  onPerform={onPerform}
+                />
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="shrink-0"
+                  aria-expanded={open}
+                  aria-label={`${open ? 'Recolher' : 'Expandir'} ${group.copies.length} cópias`}
+                  onClick={() => {
+                    onToggle(group.oracleId)
+                  }}
+                >
+                  ×{group.copies.length}
+                  {open ? <ChevronDownIcon /> : <ChevronRightIcon />}
+                </Button>
+              )}
+            </div>
+            {!single && open ? (
+              <ul className="mt-1 border-t border-foreground/10">
+                {group.copies.map((copy) => (
+                  <li
+                    key={copy.id}
+                    className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2"
+                  >
+                    <CopyFacts copy={copy} />
+                    <CopyActionButtons
+                      copy={copy}
+                      meId={meId}
+                      busy={busy}
+                      onPerform={onPerform}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function BulkGrid({
+  copies,
+  meId,
+  busy,
+  onPerform,
+}: {
+  copies: Array<Copy>
+  meId: string
+  busy: string | null
+  onPerform: (copy: Copy, action: CopyAction) => void
+}) {
+  return (
+    <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+      {copies.map((copy) => {
+        const name = copy.catalog.name_pt ?? copy.catalog.name_en
+        const legendary = isLegendary(copy.catalog.type_line)
+        const state = copyStateText(copy)
+        const where = [state.label, state.detail].filter(Boolean).join(' · ')
+
+        return (
+          <li
+            key={copy.id}
+            className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10"
+          >
+            <div className="p-2 pb-0">
+              <CardThumb
+                url={copy.catalog.image_url}
+                alt={name}
+                preview={false}
+                className="aspect-[488/680] h-auto w-full rounded-[4.5%] object-cover"
+              />
+            </div>
+            <div className="flex flex-1 flex-col gap-2 p-3 pt-2.5">
+              <div className="flex flex-col gap-0.5">
+                <p className="font-heading text-base leading-snug">{name}</p>
+                {copy.catalog.name_pt ? (
+                  <p className="text-sm text-muted-foreground">
+                    {copy.catalog.name_en}
+                  </p>
+                ) : null}
+                {legendary ? (
+                  <p className="text-sm text-amber-800 dark:text-amber-300">
+                    Lendária
+                  </p>
+                ) : null}
+              </div>
+              <div className="mt-auto flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <span>{where}</span>
+                  {state.badge ? (
+                    <Badge variant="secondary">{state.badge}</Badge>
+                  ) : null}
+                </div>
+                {copy.visibility === 'in_use_elsewhere' ? null : (
+                  <p className="text-sm text-muted-foreground">
+                    Casa {personName(copy.holder)}
+                  </p>
+                )}
+                <CopyActionButtons
+                  copy={copy}
+                  meId={meId}
+                  busy={busy}
+                  stretch
+                  onPerform={onPerform}
+                />
+              </div>
+            </div>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

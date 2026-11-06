@@ -88,7 +88,9 @@ async def test_it_never_takes_a_copy_that_is_in_another_persons_house(
     [added] = await add_to_deck(client, deck, ada["access_token"], oracle_id, 1)
 
     assert added["id"] != graces["id"]
-    assert (added["holder"]["nick"] if isinstance(added["holder"], dict) else None) == "ada"
+    assert (added["holder"]["email"] if isinstance(added["holder"], dict) else None) == (
+        "ada@example.com"
+    )
     assert await copy_count() == 2
     listed = rows(
         await client.get(

@@ -8,46 +8,47 @@ O que este repositório precisa implementar para sustentar o app descrito em [co
 - Testes com pytest. Estilo já exigido por Ruff e Mypy.
 - Prefixo `/api/v1`.
 - Dinheiro em centavos, inteiro. R$ 10 são `1000`. Nunca `float`.
-- Auth no Supabase. Domínio (nick, grupos, cartas, decks, pedidos) no PostgreSQL deste serviço.
+- Auth no Supabase. Domínio (usuários, grupos, cartas, decks, pedidos) no PostgreSQL deste serviço.
 
 Variáveis novas, no mesmo padrão de `app/core/config.py`: URL e chave anônima do Supabase, JWT secret ou JWKS para validar o access token, e a service role só no processo do backend. A service role não vai para o cliente nem para o log.
 
 ## Autenticação
 
-O Supabase Auth entra com e-mail e senha. Não existe login nativo por nick. O nick único mora na tabela `users` deste banco, com o `id` igual ao `user.id` do Supabase.
+O Supabase Auth entra com e-mail e senha. A pessoa é identificada pelo e-mail, único sem diferença de maiúsculas. O `id` em `users` é o `user.id` do Supabase.
 
 Cadastro:
 
-1. Nick livre, comparação sem diferença de maiúsculas.
-2. Cria o usuário no Supabase com e-mail, senha e o nick nos metadados.
-3. Grava `users` (`id`, `email`, `nick`, `created_at`).
-4. Nick duplicado falha o cadastro inteiro.
+1. E-mail livre.
+2. Cria o usuário no Supabase com e-mail e senha.
+3. Grava `users` (`id`, `email`, `first_name`, `last_name`, `level`, `created_at`).
+4. E-mail duplicado falha o cadastro inteiro, sem deixar usuário no provedor.
 
-Nick: 3 a 20 caracteres, letras, números e `_`, único ignorando caixa.
-
-Login: o corpo leva `identifier` e `password`. Se o identifier contém `@`, é e-mail. Caso contrário, o backend acha o e-mail pelo nick e chama o Supabase. A resposta de erro é a mesma para nick inexistente e senha errada. A resposta de sucesso devolve os tokens do Supabase e não devolve o e-mail quando o login foi por nick.
+Login: o corpo leva `email` e `password`. A resposta de erro é a mesma para e-mail inexistente e senha errada, e não devolve o e-mail. A resposta de sucesso devolve os tokens do Supabase.
 
 Rotas protegidas exigem `Authorization: Bearer`. O backend valida assinatura, emissor e expiração do JWT e carrega o `users` local. Usuário sem linha local recebe 401.
 
-Recuperação de senha: o cliente manda e-mail ou nick. O backend pede o e-mail de reset ao Supabase e responde sempre a mesma mensagem, exista a conta ou não.
+Recuperação de senha: o cliente manda o e-mail. O backend só pede o reset ao Supabase se a conta existir, e responde sempre a mesma mensagem.
+
+Troca de senha: `POST /auth/password` com a sessão, `current_password` e `new_password`. Confere a senha atual no provedor e só então grava a nova. Senha atual errada responde 400, para não parecer sessão expirada.
 
 Endpoints:
 
-- `POST /auth/register` com `email`, `password`, `nick`
-- `POST /auth/login` com `identifier`, `password`
+- `POST /auth/register` com `email`, `password`, `first_name`, `last_name`
+- `POST /auth/login` com `email`, `password`
 - `POST /auth/refresh` com `refresh_token`
-- `POST /auth/forgot-password` com `identifier`
+- `POST /auth/forgot-password` com `email`
+- `POST /auth/password` com `current_password`, `new_password`
 - `GET /me`
 
-`GET /me` devolve `id` e `nick`.
+`GET /me` devolve `id`, `email`, `first_name`, `last_name` e `created_at`. `PATCH /me` atualiza `first_name` e `last_name`. Nome e sobrenome têm de 1 a 80 caracteres, sem ficar só com espaço. Mensagens de erro que a pessoa lê estão em português.
 
 ## Modelo
 
 ### users
 
-`id` uuid, `email`, `nick`, `nick_normalized` único, `level` (0 é admin, 1 é usuário comum, o padrão do cadastro público), `created_at`.
+`id` uuid, `email` único, `first_name`, `last_name`, `level` (0 é admin, 1 é usuário comum, o padrão do cadastro público), `created_at`. O nome fica nesta tabela, não no metadata do Auth: quem está no grupo precisa ler o nome da casa.
 
-O admin `bulkados` é criado na subida do backend, se ainda não existir, com `ADMIN_EMAIL` e `ADMIN_PASSWORD` (em desenvolvimento, sem senha configurada, vale `@bulkados1234`). O nick `bulkados` é reservado no cadastro público. `POST /admin/users` cria usuário, com `level` opcional.
+O admin é gravado pelo seed (`python -m app.seed`) depois das migrações, e de novo na subida do backend, se o `ADMIN_EMAIL` ainda não existir. Usa `ADMIN_EMAIL` e `ADMIN_PASSWORD` (em desenvolvimento, sem senha configurada, vale `@bulkados1234`) e o nome Admin Bulkados. `POST /admin/users` cria usuário com `email`, `password`, `first_name`, `last_name` e `level` opcional.
 
 ### groups
 
@@ -143,8 +144,10 @@ Reservar trava a cópia em todos os `card_copy_groups`. Não existe trava por gr
 ### Grupos
 
 - Criar grupo cria a membership `accepted` do dono.
-- Convidar pelo nick. A pessoa precisa existir. Convite repetido ou para quem já é membro responde 409.
-- Aceitar e recusar só a própria convidada. Recusar apaga o convite.
+- Convidar pelo e-mail. A pessoa precisa existir. Convite repetido ou para quem já é membro responde 409.
+- `GET /groups` lista só membership `accepted`. O convite pendente não aparece aí.
+- `GET /invitations` lista os convites `invited` de quem está logado: `id` (o id da membership), `group` (`id`, `name`), `invited_by` (`id`, `email`, `first_name`, `last_name`), `created_at`.
+- Aceitar e recusar só a própria convidada, usando esse `id`. Recusar apaga o convite. Antes do aceite, a pessoa não lê o grupo.
 - Renomear só o dono.
 - Sair:
   - apaga os decks de quem saiu naquele grupo;
@@ -159,7 +162,7 @@ Não há expulsão. Quem fica com o papel é quem sai, pelos vínculos acima.
 
 Corpo: `oracle_id` (a carta do acervo, achada por ele; 404 se não existir), `quantity`, `holder_id` opcional (a casa) e `group_ids` opcional.
 
-A casa padrão é o usuário atual. Outra casa tem de ser membro `accepted` dos grupos escolhidos. Quem cadastra também. Os grupos escolhidos ficam em `card_copy_groups`. Se a casa é o próprio usuário e ele não manda grupos, vincula todos os grupos dele.
+A casa padrão é o usuário atual. Outra casa tem de ser membro `accepted` dos grupos escolhidos. Quem cadastra também. Os grupos escolhidos ficam em `card_copy_groups`. `group_ids`, quando vem, é a lista exata. Se a casa é o próprio usuário e ele não manda grupos, vincula todos os grupos dele. Se a casa é outra pessoa e ele não manda grupos, vincula só o grupo da URL.
 
 Quantidade cria N cópias iguais, cada uma com o preço daquela consulta. Uma falha de preço não desfaz o cadastro: `price_cents` fica nulo.
 
@@ -290,7 +293,8 @@ Grupos:
 - `POST /groups` `{ name }`
 - `GET /groups`
 - `PATCH /groups/{id}` `{ name }`
-- `POST /groups/{id}/invitations` `{ nick }`
+- `POST /groups/{id}/invitations` `{ email }`
+- `GET /invitations`
 - `POST /invitations/{id}/accept`
 - `POST /invitations/{id}/decline`
 - `POST /groups/{id}/leave`
@@ -299,7 +303,7 @@ Grupos:
 Cartas:
 
 - `POST /groups/{id}/copies` cadastra no bulk daquele grupo e pode incluir outros grupos no corpo
-- `GET /groups/{id}/copies` lista as cópias vinculadas, com estado visível: livre, reservada, no deck (nick do deck se o deck é deste grupo), ou em uso em outro grupo quando o deck está num grupo que quem vê não participa
+- `GET /groups/{id}/copies` lista as cópias vinculadas, com estado visível: livre, reservada, no deck (e-mail do deck se o deck é deste grupo), ou em uso em outro grupo quando o deck está num grupo que quem vê não participa
 - `POST /copies/{id}/groups` `{ group_id }` compartilha
 - `DELETE /copies/{id}` remove
 - `POST /copies/{id}/refresh-price`
@@ -334,13 +338,13 @@ Pedidos:
 
 É o formato que o frontend valida (`frontend/src/lib/api`). Os testes de `tests/integration/test_contract.py` travam as chaves; mudar um lado sem o outro quebra a tela.
 
-- Cópia (`POST` e `GET /groups/{id}/copies`, `refresh-price`, `take`, `move`, `return`, `lock`, `unlock`): `id`, `catalog` (`oracle_id`, `name_en`, `name_pt`, `image_url`, `mana_cost`, `type_line`, `color_identity`, `is_basic`), `holder` e `added_by` (`id`, `nick`), `price_cents`, `price_fetched_at`, `state`, `locked`, `visibility`, `deck` (`id`, `name`, `owner`) ou nulo, `open_request` (`id`, `status`, `source`, `requester`) ou nulo.
+- Cópia (`POST` e `GET /groups/{id}/copies`, `refresh-price`, `take`, `move`, `return`, `lock`, `unlock`): `id`, `catalog` (`oracle_id`, `name_en`, `name_pt`, `image_url`, `mana_cost`, `type_line`, `color_identity`, `is_basic`), `holder` e `added_by` (`id`, `email`, `first_name`, `last_name`), `price_cents`, `price_fetched_at`, `state`, `locked`, `visibility`, `deck` (`id`, `name`, `owner`) ou nulo, `open_request` (`id`, `status`, `source`, `requester`) ou nulo.
 - Deck (`GET` e `PATCH /decks/{id}`): `id`, `group_id`, `name`, `format`, `owner_id`, `color_identity`, `color_identity_name`, `card_count`, `main_price_cents`, `commander_price_cents`, `warnings` e `cards`. Cada carta traz `card_copy_id`, `role`, `locked`, `price_cents`, `holder`, `catalog` (os campos acima mais `commander_legal`, `can_be_commander`, `partner_kind`), `open_request` e `can_toggle_commander`. O resumo do deck (`GET /groups/{id}/decks`) traz `color_identity`, `color_identity_name` e `commanders` (cada um com `name_en`, `name_pt` e `image_url`).
 - Encontros: `to_bring` com `id`, `source`, `catalog` (`name_en`, `name_pt`), `requester` e `target_deck` (`id`, `name`); `to_receive` com `id`, `source`, `catalog`, `status`, `holder` e `target_deck`.
 
 ## Ordem de implementação
 
-1. Usuários, cadastro, login por nick ou e-mail, `GET /me`, JWT nas rotas.
+1. Usuários, cadastro, login por e-mail, `GET /me`, JWT nas rotas.
 2. Grupos, convite, aceite, saída e transferência de dono.
 3. Busca no Scryfall e cache `catalog_cards`, com `PriceProvider` devolvendo vazio.
 4. Cópias no bulk, vínculo com vários grupos, land básica a preço zero.
@@ -349,7 +353,7 @@ Pedidos:
 7. Mover, devolver, travar, destravar, compartilhar, remover, sair do grupo com cartas.
 8. Adaptador de preço da LigaMagic, quando houver acesso permitido. Até lá o aviso `missing_price` é o comportamento esperado.
 
-Cada etapa entra com teste do caso feliz e do conflito que a regra cita (nick repetido, convite sem aceite, segunda solicitação 409, trava vista por outro grupo, saída levando só a carta da própria casa, Commander 10 estourado gera aviso e persiste o deck).
+Cada etapa entra com teste do caso feliz e do conflito que a regra cita (e-mail repetido, convite sem aceite, segunda solicitação 409, trava vista por outro grupo, saída levando só a carta da própria casa, Commander 10 estourado gera aviso e persiste o deck).
 
 ## Fora deste serviço
 

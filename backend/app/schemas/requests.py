@@ -20,9 +20,13 @@ class RequestRead(BaseModel):
     card_copy_id: UUID
     group_id: UUID
     requester_id: UUID
-    requester_nick: str
+    requester_email: str
+    requester_first_name: str
+    requester_last_name: str
     holder_id: UUID
-    holder_nick: str
+    holder_email: str
+    holder_first_name: str
+    holder_last_name: str
     source: RequestSource
     source_deck_id: UUID | None
     target_deck_id: UUID

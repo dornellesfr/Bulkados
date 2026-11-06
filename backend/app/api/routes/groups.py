@@ -3,7 +3,14 @@ from uuid import UUID
 from fastapi import APIRouter
 
 from app.api.deps import CurrentUser, DbSession
-from app.schemas.groups import GroupCreate, GroupSummary, GroupUpdate, InvitationCreate, MemberRead
+from app.schemas.groups import (
+    GroupCreate,
+    GroupSummary,
+    GroupUpdate,
+    InvitationCreate,
+    InvitationRead,
+    MemberRead,
+)
 from app.services import groups as group_service
 
 router = APIRouter(tags=["groups"])
@@ -37,6 +44,11 @@ async def invite(
     session: DbSession,
 ) -> MemberRead:
     return await group_service.invite(session, user, group_id, body)
+
+
+@router.get("/invitations", response_model=list[InvitationRead])
+async def list_invitations(user: CurrentUser, session: DbSession) -> list[InvitationRead]:
+    return await group_service.list_invitations(session, user)
 
 
 @router.post("/invitations/{invitation_id}/accept", response_model=MemberRead)

@@ -1,5 +1,6 @@
 import type { Copy } from '@/lib/api/copies'
 import type { DeckCard } from '@/lib/api/decks'
+import { personName } from '@/lib/api/schemas'
 
 export type CopyAction =
   | 'take'
@@ -159,9 +160,9 @@ export function copyStateText(copy: Copy) {
     return { label: 'Em uso em outro grupo', badge: null, detail: null }
   }
 
-  const nick = copy.deck?.owner.nick
+  const owner = copy.deck?.owner
   return {
-    label: nick ? `No deck de ${nick}` : 'No deck',
+    label: owner ? `No deck de ${personName(owner)}` : 'No deck',
     badge: copy.locked ? 'Travada' : 'Destravada',
     detail: copy.deck?.name ?? null,
   }

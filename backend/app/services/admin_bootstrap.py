@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -13,7 +13,7 @@ from app.core.errors import (
     RegistrationRejectedError,
 )
 from app.core.security import user_id_from_access_token
-from app.domain.identity import ADMIN_LEVEL, ADMIN_NICK, normalize_email
+from app.domain.identity import ADMIN_LEVEL, normalize_email
 from app.integrations.auth import AuthProvider
 from app.integrations.supabase import SupabaseAuthProvider
 from app.models.user import User
@@ -56,12 +56,10 @@ async def ensure_admin(session: AsyncSession, auth: AuthProvider, settings: Sett
         logger.warning("admin: ADMIN_EMAIL inválido, usuário admin não criado")
         return
 
-    existing = await session.scalar(
-        select(User).where(or_(User.nick_normalized == ADMIN_NICK, User.email == email))
-    )
+    existing = await session.scalar(select(User).where(User.email == email))
     if existing is not None:
         if existing.level != ADMIN_LEVEL:
-            logger.warning("admin: o nick ou o e-mail do admin já é de um usuário comum")
+            logger.warning("admin: o e-mail do admin já é de um usuário comum")
         return
 
     user_id = await _auth_user_id(auth, email, password, settings)
@@ -71,13 +69,13 @@ async def ensure_admin(session: AsyncSession, auth: AuthProvider, settings: Sett
         User(
             id=user_id,
             email=email,
-            nick=ADMIN_NICK,
-            nick_normalized=ADMIN_NICK,
+            first_name="Admin",
+            last_name="Bulkados",
             level=ADMIN_LEVEL,
         )
     )
     await session.flush()
-    logger.info("admin: usuário %s criado", ADMIN_NICK)
+    logger.info("admin: usuário %s criado", email)
 
 
 async def _auth_user_id(
@@ -87,7 +85,7 @@ async def _auth_user_id(
     settings: Settings,
 ) -> UUID | None:
     try:
-        return await auth.sign_up(email, password, ADMIN_NICK)
+        return await auth.sign_up(email, password)
     except RegistrationRejectedError:
         pass  # já existe no provedor (banco local recriado, por exemplo): reaproveita o id
     except AuthProviderUnavailableError:

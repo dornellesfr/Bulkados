@@ -28,7 +28,9 @@ class PersonRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    nick: str
+    email: str
+    first_name: str
+    last_name: str
 
 
 class CatalogRef(BaseModel):

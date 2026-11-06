@@ -33,19 +33,19 @@ async def accepted_group_ids(session: AsyncSession, user_id: UUID) -> list[UUID]
 async def require_accepted_group(session: AsyncSession, group_id: UUID, user_id: UUID) -> Group:
     group = await session.get(Group, group_id)
     if group is None or not await is_accepted(session, group_id, user_id):
-        raise DomainError(404, "group not found")
+        raise DomainError(404, "Não encontramos esse grupo.")
     return group
 
 
 async def require_deck_reader(session: AsyncSession, deck_id: UUID, user_id: UUID) -> Deck:
     deck = await session.get(Deck, deck_id)
     if deck is None or not await is_accepted(session, deck.group_id, user_id):
-        raise DomainError(404, "deck not found")
+        raise DomainError(404, "Não encontramos esse deck.")
     return deck
 
 
 async def require_deck_owner(session: AsyncSession, deck_id: UUID, user_id: UUID) -> Deck:
     deck = await require_deck_reader(session, deck_id, user_id)
     if deck.owner_id != user_id:
-        raise DomainError(403, "only the deck owner can do this")
+        raise DomainError(403, "Só o dono do deck pode fazer isso.")
     return deck

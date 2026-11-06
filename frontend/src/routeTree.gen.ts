@@ -14,6 +14,7 @@ import { Route as CadastrarRouteImport } from './routes/cadastrar'
 import { Route as EntrarRouteImport } from './routes/entrar'
 import { Route as RecuperarSenhaRouteImport } from './routes/recuperar-senha'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppPerfilRouteImport } from './routes/_app/perfil'
 import { Route as AppGruposGroupIdRouteImport } from './routes/_app/grupos/$groupId'
 import { Route as AppGruposGroupIdIndexRouteImport } from './routes/_app/grupos/$groupId/index'
 import { Route as AppGruposGroupIdEncontroRouteImport } from './routes/_app/grupos/$groupId/encontro'
@@ -43,6 +44,11 @@ const RecuperarSenhaRoute = RecuperarSenhaRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPerfilRoute = AppPerfilRouteImport.update({
+  id: '/perfil',
+  path: '/perfil',
   getParentRoute: () => AppRoute,
 } as any)
 const AppGruposGroupIdRoute = AppGruposGroupIdRouteImport.update({
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/cadastrar': typeof CadastrarRoute
   '/entrar': typeof EntrarRoute
   '/recuperar-senha': typeof RecuperarSenhaRoute
+  '/perfil': typeof AppPerfilRoute
   '/grupos/$groupId': typeof AppGruposGroupIdRouteWithChildren
   '/grupos/$groupId/encontro': typeof AppGruposGroupIdEncontroRoute
   '/grupos/$groupId/membros': typeof AppGruposGroupIdMembrosRoute
@@ -95,6 +102,7 @@ export interface FileRoutesByTo {
   '/cadastrar': typeof CadastrarRoute
   '/entrar': typeof EntrarRoute
   '/recuperar-senha': typeof RecuperarSenhaRoute
+  '/perfil': typeof AppPerfilRoute
   '/': typeof AppIndexRoute
   '/grupos/$groupId/encontro': typeof AppGruposGroupIdEncontroRoute
   '/grupos/$groupId/membros': typeof AppGruposGroupIdMembrosRoute
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   '/cadastrar': typeof CadastrarRoute
   '/entrar': typeof EntrarRoute
   '/recuperar-senha': typeof RecuperarSenhaRoute
+  '/_app/perfil': typeof AppPerfilRoute
   '/_app/': typeof AppIndexRoute
   '/_app/grupos/$groupId': typeof AppGruposGroupIdRouteWithChildren
   '/_app/grupos/$groupId/encontro': typeof AppGruposGroupIdEncontroRoute
@@ -123,6 +132,7 @@ export interface FileRouteTypes {
     | '/cadastrar'
     | '/entrar'
     | '/recuperar-senha'
+    | '/perfil'
     | '/grupos/$groupId'
     | '/grupos/$groupId/encontro'
     | '/grupos/$groupId/membros'
@@ -134,6 +144,7 @@ export interface FileRouteTypes {
     | '/cadastrar'
     | '/entrar'
     | '/recuperar-senha'
+    | '/perfil'
     | '/'
     | '/grupos/$groupId/encontro'
     | '/grupos/$groupId/membros'
@@ -146,6 +157,7 @@ export interface FileRouteTypes {
     | '/cadastrar'
     | '/entrar'
     | '/recuperar-senha'
+    | '/_app/perfil'
     | '/_app/'
     | '/_app/grupos/$groupId'
     | '/_app/grupos/$groupId/encontro'
@@ -197,6 +209,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/perfil': {
+      id: '/_app/perfil'
+      path: '/perfil'
+      fullPath: '/perfil'
+      preLoaderRoute: typeof AppPerfilRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/grupos/$groupId': {
@@ -264,11 +283,13 @@ const AppGruposGroupIdRouteWithChildren =
   AppGruposGroupIdRoute._addFileChildren(AppGruposGroupIdRouteChildren)
 
 interface AppRouteChildren {
+  AppPerfilRoute: typeof AppPerfilRoute
   AppIndexRoute: typeof AppIndexRoute
   AppGruposGroupIdRoute: typeof AppGruposGroupIdRouteWithChildren
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppPerfilRoute: AppPerfilRoute,
   AppIndexRoute: AppIndexRoute,
   AppGruposGroupIdRoute: AppGruposGroupIdRouteWithChildren,
 }

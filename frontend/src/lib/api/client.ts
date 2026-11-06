@@ -4,6 +4,7 @@ import {
   clearSession,
   getAccessToken,
   getRefreshToken,
+  sessionEpoch,
   setSession,
 } from '@/lib/auth/session'
 import { tokenSchema } from '@/lib/api/schemas'
@@ -58,10 +59,37 @@ function fallbackMessage(status: number, kind: ErrorKind) {
   }
 
   if (status === 422) {
-    return 'Revise os campos.'
+    return 'Revise os campos e tente de novo.'
   }
 
   return 'Não foi possível concluir. Tente de novo.'
+}
+
+function validationMessage(detail: unknown[]) {
+  const fields = detail.flatMap((item) => {
+    if (!item || typeof item !== 'object' || !('loc' in item)) {
+      return []
+    }
+
+    const loc = item.loc
+
+    if (!Array.isArray(loc) || loc.length === 0) {
+      return []
+    }
+
+    const field = loc[loc.length - 1]
+    return typeof field === 'string' ? [field] : []
+  })
+
+  if (fields.some((field) => field === 'email')) {
+    return 'Informe um e-mail válido.'
+  }
+
+  if (fields.some((field) => field.includes('password'))) {
+    return 'A senha precisa ter de 6 a 128 caracteres.'
+  }
+
+  return 'Revise os campos e tente de novo.'
 }
 
 function messageFromPayload(payload: unknown, status: number, kind: ErrorKind) {
@@ -75,7 +103,7 @@ function messageFromPayload(payload: unknown, status: number, kind: ErrorKind) {
   }
 
   if (Array.isArray(detail)) {
-    return 'Revise os campos.'
+    return validationMessage(detail)
   }
 
   return fallbackMessage(status, kind)
@@ -96,7 +124,7 @@ async function readPayload(response: Response) {
     return JSON.parse(text) as unknown
   } catch {
     throw new ApiError(
-      'Não foi possível concluir. Tente de novo.',
+      'O servidor respondeu de um jeito inesperado. Atualize a página.',
       response.status,
     )
   }
@@ -120,6 +148,7 @@ async function toApiError(response: Response, kind: ErrorKind) {
 }
 
 async function performRefresh() {
+  const atEpoch = sessionEpoch()
   const refreshToken = getRefreshToken()
 
   if (!refreshToken) {
@@ -133,6 +162,11 @@ async function performRefresh() {
       refresh: true,
       body: JSON.stringify({ refresh_token: refreshToken }),
     })
+
+    if (sessionEpoch() !== atEpoch) {
+      return false
+    }
+
     setSession(tokens.access_token, tokens.refresh_token)
     return true
   } catch {
@@ -192,20 +226,22 @@ export async function apiRequest<TSchema extends z.ZodType>(
       throw error
     }
 
-    throw new ApiError('Não foi possível concluir. Tente de novo.', 0)
+    throw new ApiError('Sem conexão. Tente de novo.', 0)
   }
 
   if (response.status === 401 && auth && !refresh) {
+    const atEpoch = sessionEpoch()
+
     if (!retried) {
       const refreshed = await refreshOnce()
 
-      if (refreshed) {
+      if (refreshed || sessionEpoch() !== atEpoch) {
         return apiRequest(path, schema, { ...init, retried: true })
       }
     }
 
-    clearSession('expired')
-    throw new ApiError('Sua sessão expirou.', 401)
+    clearSession('expired', atEpoch)
+    throw new ApiError('Sua sessão expirou. Entre de novo.', 401)
   }
 
   if (!response.ok) {
@@ -217,7 +253,7 @@ export async function apiRequest<TSchema extends z.ZodType>(
 
   if (!parsed.success) {
     throw new ApiError(
-      'A resposta da API não confere com o contrato esperado.',
+      'O servidor respondeu de um jeito inesperado. Atualize a página.',
       response.status,
       parsed.error.issues,
     )

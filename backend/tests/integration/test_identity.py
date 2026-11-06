@@ -132,7 +132,7 @@ async def test_moving_or_requesting_a_card_outside_the_identity_is_refused(
     ada = {"access_token": deck["token"]}
     invited = await client.post(
         f"/api/v1/groups/{group['id']}/invitations",
-        json={"nick": "grace"},
+        json={"email": "grace@example.com"},
         headers=bearer(deck["token"]),
     )
     await client.post(

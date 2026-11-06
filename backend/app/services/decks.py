@@ -131,7 +131,7 @@ async def set_commanders(
     present = {row.card_copy_id for row in rows}
     wanted = set(body.card_copy_ids)
     if not wanted <= present:
-        raise DomainError(409, "commander cards must already be in the deck")
+        raise DomainError(409, "Os comandantes precisam já estar no deck.")
     cards = (
         await session.execute(
             select(CardCopy, CatalogCard)
@@ -162,9 +162,9 @@ async def take_copy(
     deck = await require_deck_owner(session, deck_id, user.id)
     copy = await lock_copy(session, body.card_copy_id)
     if copy is None or not await is_linked(session, copy.id, deck.group_id):
-        raise DomainError(404, "copy not found")
+        raise DomainError(404, "Não encontramos essa carta.")
     if copy.state is not CopyState.available or copy.holder_id != user.id:
-        raise DomainError(409, "card copy is not available")
+        raise DomainError(409, "Essa carta não está mais disponível.")
     await ensure_fits_identity(session, deck, await _card_of(session, copy))
     copy.state = CopyState.in_deck
     copy.locked = True
@@ -264,21 +264,21 @@ async def move_copy(
     source = await require_deck_owner(session, deck_id, user.id)
     copy = await lock_copy(session, card_copy_id)
     if copy is None or copy.deck_id != source.id or copy.state is not CopyState.in_deck:
-        raise DomainError(409, "card copy is not in this deck")
+        raise DomainError(409, "Essa carta não está neste deck.")
     if await open_requests_for(session, copy.id):
-        raise DomainError(409, "card copy has an open request")
+        raise DomainError(409, "Essa carta tem um pedido em aberto.")
     target = await require_deck_owner(session, body.target_deck_id, user.id)
     if target.id == source.id:
-        raise DomainError(409, "card copy is already in this deck")
+        raise DomainError(409, "Essa carta já está neste deck.")
     await ensure_fits_identity(session, target, await _card_of(session, copy))
     if target.group_id != source.group_id:
         if not await is_accepted(session, target.group_id, copy.holder_id):
-            raise DomainError(409, "holder is not a member of the destination group")
+            raise DomainError(409, "A casa dessa carta não participa do grupo de destino.")
         if not await is_linked(session, copy.id, target.group_id):
             session.add(CardCopyGroup(card_copy_id=copy.id, group_id=target.group_id))
     row = await session.get(DeckCard, copy.id)
     if row is None:
-        raise DomainError(409, "card copy is not in this deck")
+        raise DomainError(409, "Essa carta não está neste deck.")
     row.deck_id = target.id
     row.role = DeckRole.main
     copy.deck_id = target.id
@@ -294,9 +294,9 @@ async def return_copy(
     deck = await require_deck_owner(session, deck_id, user.id)
     copy = await lock_copy(session, card_copy_id)
     if copy is None or copy.deck_id != deck.id or copy.state is not CopyState.in_deck:
-        raise DomainError(409, "card copy is not in this deck")
+        raise DomainError(409, "Essa carta não está neste deck.")
     if await open_requests_for(session, copy.id):
-        raise DomainError(409, "card copy has an open request")
+        raise DomainError(409, "Essa carta tem um pedido em aberto.")
     await remove_deck_card(session, copy.id)
     mark_available(copy)
     return await read_copy(session, copy)
@@ -313,9 +313,9 @@ async def set_locked(
     deck = await require_deck_owner(session, deck_id, user.id)
     copy = await lock_copy(session, card_copy_id)
     if copy is None or copy.deck_id != deck.id or copy.state is not CopyState.in_deck:
-        raise DomainError(409, "card copy is not in this deck")
+        raise DomainError(409, "Essa carta não está neste deck.")
     if await open_requests_for(session, copy.id):
-        raise DomainError(409, "card copy has an open request")
+        raise DomainError(409, "Essa carta tem um pedido em aberto.")
     copy.locked = locked
     return await read_copy(session, copy)
 
@@ -352,7 +352,7 @@ def _outside_identity_message(cards: list[DeckCardFact]) -> str:
 async def _card_of(session: AsyncSession, copy: CardCopy) -> CatalogCard:
     card = await session.get(CatalogCard, copy.catalog_card_id)
     if card is None:
-        raise DomainError(404, "catalog card not found")
+        raise DomainError(404, "Não encontramos essa carta no catálogo.")
     return card
 
 
@@ -395,7 +395,12 @@ async def _detail(session: AsyncSession, deck: Deck) -> DeckDetail:
                 role=row.role,
                 locked=copy.locked,
                 price_cents=copy.price_cents,
-                holder=PersonRef(id=holder.id, nick=holder.nick),
+                holder=PersonRef(
+                    id=holder.id,
+                    email=holder.email,
+                    first_name=holder.first_name,
+                    last_name=holder.last_name,
+                ),
                 catalog=DeckCatalogRef(
                     oracle_id=card.oracle_id,
                     name_en=card.name_en,

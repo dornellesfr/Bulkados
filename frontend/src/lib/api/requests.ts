@@ -2,6 +2,7 @@ import { queryOptions } from '@tanstack/react-query'
 import { z } from 'zod'
 
 import { apiRequest } from '@/lib/api/client'
+import { personSchema } from '@/lib/api/schemas'
 
 const catalogNameSchema = z.object({
   name_en: z.string(),
@@ -11,11 +12,6 @@ const catalogNameSchema = z.object({
 const targetDeckSchema = z.object({
   id: z.string(),
   name: z.string(),
-})
-
-const personSchema = z.object({
-  id: z.string(),
-  nick: z.string(),
 })
 
 export const handoffSchema = z.object({

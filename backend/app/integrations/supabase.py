@@ -21,7 +21,7 @@ class SupabaseAuthProvider:
         self._settings = settings
         self._base_url = settings.supabase_url.rstrip("/")
 
-    async def sign_up(self, email: str, password: str, nick: str) -> UUID:
+    async def sign_up(self, email: str, password: str) -> UUID:
         self._require_service_role()
         response = await self._send(
             "POST",
@@ -31,7 +31,6 @@ class SupabaseAuthProvider:
                 "email": email,
                 "password": password,
                 "email_confirm": True,
-                "user_metadata": {"nick": nick},
             },
         )
         if response.status_code in {400, 409, 422}:
@@ -87,6 +86,23 @@ class SupabaseAuthProvider:
         if response.status_code < 500:
             return
         logger.warning("supabase recover failed with status %s", response.status_code)
+        raise AuthProviderUnavailableError
+
+    async def update_password(self, access_token: str, new_password: str) -> None:
+        self._require_anon_key()
+        headers = self._anon_headers()
+        headers["Authorization"] = f"Bearer {access_token}"
+        response = await self._send(
+            "PUT",
+            "/auth/v1/user",
+            headers,
+            {"password": new_password},
+        )
+        if response.status_code == 200:
+            return
+        if response.status_code in {400, 401, 422}:
+            raise InvalidCredentialsError
+        logger.warning("supabase password update failed with status %s", response.status_code)
         raise AuthProviderUnavailableError
 
     async def delete_user(self, user_id: UUID) -> None:

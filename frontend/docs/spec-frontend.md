@@ -28,11 +28,11 @@ Tokens em `localStorage`, chaves `magic-bulk.access-token` e `magic-bulk.refresh
 
 `apiRequest` manda `Authorization: Bearer` quando há access token. Um 401 dispara um único refresh (`POST /auth/refresh` com `refresh_token`). Pedidos paralelos esperam a mesma promise. Se o refresh falha, a sessão é apagada e a rota protegida manda para `/entrar`. O pedido original é repetido uma vez depois do refresh. 401 no próprio refresh não entra em loop.
 
-Login e cadastro que devolvem `access_token` e `refresh_token` gravam a sessão e em seguida chamam `GET /me`. O corpo do login não é lido em busca de e-mail: login por nick não traz e-mail, e a tela não precisa dele. O cabeçalho mostra o `nick` de `GET /me`.
+Login e cadastro que devolvem `access_token` e `refresh_token` gravam a sessão e em seguida chamam `GET /me`. O e-mail da conta vem de `GET /me`, não do corpo do login.
 
-A spec do backend não descreve confirmação de e-mail. Cadastro com tokens entra direto. Cadastro sem tokens vai para `/entrar` com o texto "Conta criada. Entre com seu nick ou e-mail." A tela não inventa um aviso de e-mail de confirmação.
+A spec do backend não descreve confirmação de e-mail. Cadastro com tokens entra direto. Cadastro sem tokens vai para `/entrar` com o texto "Conta criada. Entre com seu e-mail." A tela não inventa um aviso de e-mail de confirmação.
 
-Recuperação de senha mostra a `message` da API. Se o corpo não trouxer texto, a frase fixa é "Se existir uma conta, o e-mail de recuperação foi enviado." A frase é a mesma com conta existente ou não.
+Recuperação de senha mostra a `message` da API. Se o corpo não trouxer texto, a frase fixa é "Se existir uma conta com esse e-mail, enviamos as instruções para trocar a senha." A frase é a mesma com conta existente ou não.
 
 Sair apaga os dois tokens e volta para `/entrar`.
 
@@ -47,6 +47,7 @@ Públicas, e quem já tem sessão nelas cai em `/`:
 Protegidas, atrás de um layout sem path (`src/routes/_app.tsx`). Sem sessão, `beforeLoad` manda para `/entrar` e guarda o href em `redirect` para voltar depois do login.
 
 - `/` grupos e convites recebidos
+- `/perfil` e-mail da conta e troca de senha
 - `/grupos/$groupId` bulk daquele grupo
 - `/grupos/$groupId/decks` decks da pessoa naquele grupo
 - `/grupos/$groupId/decks/$deckId` deck
@@ -57,7 +58,7 @@ Não existe `GET /groups/{id}`. O layout do grupo lê o nome em `GET /groups`. I
 
 Dentro do grupo, a navegação é Bulk, Decks, Encontro, Membros. Encontro carrega `GET /groups/{id}/handoffs` no layout e mostra a soma de `to_bring` e `to_receive` quando for maior que zero.
 
-Cabeçalho logado: nome do app, link para `/`, nick, sair, tema. O link de publicações sai.
+Cabeçalho logado: menu (Grupos, Perfil, Sair), nome do app `bulkados` com link para `/`, tema. O link de publicações sai.
 
 Filtros de lista ficam na URL, no mesmo padrão de `validateSearch` que o exemplo já usa.
 
@@ -65,21 +66,21 @@ Filtros de lista ficam na URL, no mesmo padrão de `validateSearch` que o exempl
 
 O Zod descreve os campos abaixo. Campo desconhecido é descartado. Campo obrigatório ausente quebra a leitura de propósito, no `errorComponent`. Se o OpenAPI batizado no backend usar outro nome, o schema deste repositório acompanha o OpenAPI; a tela continua precisando da informação descrita aqui.
 
-Erro: a API no estilo FastAPI manda `{ "detail": ... }`. `detail` string vira a mensagem do formulário ou do toast. `detail` lista mostra "Revise os campos." Status sem corpo usa o texto da tabela de erros, mais abaixo.
+Erro: a API no estilo FastAPI manda `{ "detail": ... }`. `detail` string vira a mensagem do formulário ou do toast. `detail` lista vira uma frase em português sobre o campo (e-mail ou senha). Status sem corpo usa o texto da tabela de erros, mais abaixo.
 
 ### Auth
 
-`POST /auth/register` com `email`, `password`, `nick`.
+`POST /auth/register` com `first_name`, `last_name`, `email`, `password`. Nome e sobrenome de 1 a 80 caracteres. Senha de 6 a 128 caracteres.
 
-`POST /auth/login` com `identifier`, `password`. Resposta usada: `access_token`, `refresh_token`, `expires_in`.
+`POST /auth/login` com `email`, `password`. Resposta usada: `access_token`, `refresh_token`, `expires_in`. E-mail ou senha errados usam a mesma mensagem.
 
 `POST /auth/refresh` com `refresh_token`. Mesma forma de token.
 
-`POST /auth/forgot-password` com `identifier`.
+`POST /auth/forgot-password` com `email`.
 
-`GET /me` devolve `id` e `nick`.
+`POST /auth/password` com `current_password`, `new_password`, autenticado. 204 quando salva. Senha atual errada não é 401.
 
-Nick no formulário: 3 a 20 caracteres, letras, números e `_`. A API continua sendo quem recusa nick duplicado.
+`GET /me` devolve `id`, `email`, `first_name`, `last_name` e `created_at`. `PATCH /me` salva nome e sobrenome.
 
 ### Grupos
 
@@ -93,24 +94,24 @@ Dono na tela é `owner_id === me.id`. Não há campo extra de papel.
 
 `GET /groups/{id}/members`:
 
-- `user_id`, `nick`, `status` (`invited` ou `accepted`), `created_at`
+- `user_id`, `email`, `first_name`, `last_name`, `status` (`invited` ou `accepted`), `created_at`
 
-`POST /groups/{id}/invitations` `{ nick }`.
+`POST /groups/{id}/invitations` `{ email }`.
 
 `POST /invitations/{id}/accept` e `POST /invitations/{id}/decline`.
 
 `POST /groups/{id}/leave`.
 
-`GET /groups` não inclui convite pendente: quem está `invited` não lê o grupo. A caixa de convites precisa de uma leitura que a spec do backend ainda não nomeia:
+`GET /groups` não inclui convite pendente: quem está `invited` não lê o grupo e o grupo não entra na lista.
 
-`GET /invitations`, só os convites `invited` de quem está logado:
+`GET /invitations` lista só os convites `invited` de quem está logado:
 
 - `id`
 - `group`: `id`, `name`
-- `invited_by`: `id`, `nick`
+- `invited_by`: `id`, `email`, `first_name`, `last_name`
 - `created_at`
 
-Aceitar e recusar usam esse `id`. Sem essa rota, a etapa de grupos entrega criar, renomear, convidar, membros e sair; a caixa de entrada fica para quando a rota existir. Não chutar outra URL.
+Aceitar e recusar usam esse `id`. Lista vazia não ocupa a tela.
 
 ### Catálogo
 
@@ -124,23 +125,23 @@ A busca dispara com pelo menos 2 caracteres, com debounce, e cancela a request a
 
 - `id`
 - `catalog`: `oracle_id`, `name_en`, `name_pt`, `type_line`, `color_identity`, `is_basic`
-- `holder`: `id`, `nick`
-- `added_by`: `id`, `nick`
+- `holder`: `id`, `email`, `first_name`, `last_name`
+- `added_by`: `id`, `email`, `first_name`, `last_name`
 - `price_cents` nulo, `price_fetched_at` nulo
 - `state`: `available`, `reserved`, `in_deck`
 - `locked`
 - `visibility`: `available`, `reserved`, `in_deck`, `in_use_elsewhere`
-- `deck` nulo, ou `{ id, name, owner: { id, nick } }` quando `visibility` é `in_deck` (o deck é deste grupo)
-- `open_request` nulo, ou `{ id, status, source, requester: { id, nick } }` com `status` `pending_acceptance` ou `awaiting_handoff` e `source` `bulk` ou `deck`
+- `deck` nulo, ou `{ id, name, owner: { id, email, first_name, last_name } }` quando `visibility` é `in_deck` (o deck é deste grupo)
+- `open_request` nulo, ou `{ id, status, source, requester: { id, email, first_name, last_name } }` com `status` `pending_acceptance` ou `awaiting_handoff` e `source` `bulk` ou `deck`
 
-`in_use_elsewhere` é a cópia no deck de um grupo que quem vê não participa. Nesse caso `deck` vem nulo: a tela não mostra nome de deck nem nick de outro grupo.
+`in_use_elsewhere` é a cópia no deck de um grupo que quem vê não participa. Nesse caso `deck` vem nulo: a tela não mostra nome de deck nem e-mail de outro grupo.
 
 `POST /groups/{id}/copies`:
 
 - `oracle_id`
 - `quantity`, inteiro `>= 1`
 - `holder_id` opcional; omitido, a casa é quem cadastra
-- `group_ids` opcional, os outros grupos além do grupo da URL
+- `group_ids` opcional, a lista exata dos grupos da carta. Omitido com a casa sendo quem cadastra, a API vincula todos os grupos dela. A tela sempre manda a lista marcada.
 
 Resposta: a lista das cópias criadas. Falha de preço não falha o cadastro; `price_cents` nulo é sucesso.
 
@@ -161,7 +162,7 @@ Resposta: a lista das cópias criadas. Falha de preço não falha o cadastro; `p
 - `id`, `group_id`, `name`, `format`, `owner_id`
 - `card_count`, `main_price_cents`, `commander_price_cents`
 - `warnings`: `code`, `card_copy_id` nulo, `message`
-- `cards`: `card_copy_id`, `role` (`commander` ou `main`), `locked`, `price_cents` nulo, `holder` (`id`, `nick`), `catalog` (os campos da cópia, mais `commander_legal`, `can_be_commander`, `partner_kind` nulo), `open_request` no mesmo formato da lista de cópias
+- `cards`: `card_copy_id`, `role` (`commander` ou `main`), `locked`, `price_cents` nulo, `holder` (`id`, `email`, `first_name`, `last_name`), `catalog` (os campos da cópia, mais `commander_legal`, `can_be_commander`, `partner_kind` nulo), `open_request` no mesmo formato da lista de cópias
 
 O texto do aviso é o `message` da API. O `code` só escolhe o lugar na tela. A interface não tem uma segunda lista de regras.
 
@@ -187,8 +188,8 @@ O texto do aviso é o `message` da API. O `code` só escolhe o lugar na tela. A 
 
 `GET /groups/{id}/handoffs`:
 
-- `to_bring`: pedidos `awaiting_handoff` em que a casa é quem está logado. Item com `id`, `source`, `catalog` (`name_en`, `name_pt`), `requester` (`id`, `nick`), `target_deck` (`id`, `name`).
-- `to_receive`: pedidos abertos em que quem está logado pediu. O mesmo item, mais `status` (`pending_acceptance` ou `awaiting_handoff`) e `holder` (`id`, `nick`) no lugar de `requester`.
+- `to_bring`: pedidos `awaiting_handoff` em que a casa é quem está logado. Item com `id`, `source`, `catalog` (`name_en`, `name_pt`), `requester` (`id`, `email`, `first_name`, `last_name`), `target_deck` (`id`, `name`).
+- `to_receive`: pedidos abertos em que quem está logado pediu. O mesmo item, mais `status` (`pending_acceptance` ou `awaiting_handoff`) e `holder` (`id`, `email`, `first_name`, `last_name`) no lugar de `requester`.
 
 Aceitar e recusar não aparecem nessas duas listas. Aparecem na carta do deck de origem, para o dono daquele deck, quando `open_request.status` é `pending_acceptance`.
 
@@ -223,7 +224,7 @@ O uso é com o papel na mão. Bulk, deck e encontro funcionam na largura de um t
 
 Entrar: um campo "Nick ou e-mail", senha, link para cadastrar e para recuperar. O identifier vai inteiro; quem decide se é e-mail é a API, pela presença de `@`.
 
-Cadastrar: e-mail, senha, nick. Erro de nick duplicado usa o `detail` da API.
+Cadastrar: nome, sobrenome, e-mail e senha. E-mail duplicado usa o `detail` da API. Perfil mostra o e-mail e deixa salvar nome e sobrenome.
 
 Recuperar: um campo "Nick ou e-mail". Sucesso é a frase única da seção de sessão, com o formulário desabilitado depois do envio.
 
@@ -235,26 +236,26 @@ Lista os grupos. Cada item leva ao bulk e marca "Dono" quando `owner_id` é a pe
 
 Criar pede o nome (texto com algo depois do trim, no máximo 80 caracteres).
 
-Acima da lista, os convites de `GET /invitations`. Cada um tem o nome do grupo, o nick de quem convidou, Aceitar e Recusar. Recusar pede confirmação. Aceitar entra no grupo e abre o bulk dele. Lista vazia não ocupa a tela.
+Acima da lista, os convites de `GET /invitations`. Cada um tem o nome do grupo, o nome de quem convidou, Aceitar e Recusar. Recusar pede confirmação. Aceitar entra no grupo e abre o bulk dele. Lista vazia não ocupa a tela.
 
 ### Bulk
 
-`GET /groups/{id}/copies`. A URL guarda `q` e `estado` (`available`, `reserved`, `in_deck`, `in_use_elsewhere`). O filtro é local, nos nomes e na `visibility`. Não há paginação na API; a tela lista o que veio.
+`GET /groups/{id}/copies`. A URL guarda `q`, `estado` (`available`, `reserved`, `in_deck`, `in_use_elsewhere`) e `vista` (`lista`; o padrão `cartas` fica de fora da URL). O filtro é local, nos nomes e na `visibility`. Não há paginação na API; a tela lista o que veio. A organização fica ao lado dos filtros. `cartas` é a grade, uma cópia por cartão: imagem grande, nome, "Lendária" quando o tipo traz isso, onde está e a ação principal (pegar ou solicitar para um deck, quando couber). `lista` é uma linha por carta: a miniatura permanece, e nome, tipo, cores, custo, casa, preço, estado e a ação ocupam a largura.
 
-Cada linha: nome da carta, tipo, cores, casa, preço, e o estado:
+Cada linha da lista: nome da carta, tipo, cores, casa, preço, e o estado:
 
 - `available`: Livre
 - `reserved`: Reservada
-- `in_deck`: "No deck de {nick}" e o nome do deck. Se `locked`, o selo Travada; se não, Destravada
+- `in_deck`: "No deck de {nome}" e o nome do deck. Se `locked`, o selo Travada; se não, Destravada
 - `in_use_elsewhere`: "Em uso em outro grupo", sem mais detalhe
 
-Cadastrar abre a busca do catálogo e, depois da carta escolhida, pede quantidade e casa.
+Cadastrar abre a busca do catálogo e, depois da carta escolhida, pede quantidade e onde entra. "Livre no bulk" segue com casa e grupos. Um deck da pessoa neste grupo manda `POST /decks/{id}/copies`: a carta entra travada, na casa de quem cadastra, e ninguém solicita. Se ela já tem essa carta livre no bulk deste grupo, essa cópia é a que entra no deck; o que faltar é cadastrado. Sem deck neste grupo, a única opção é livre, e a tela diz para criar um deck se quiser que a carta já entre com ela. Casa e grupos ficam ocultos quando o destino é um deck.
 
 Quantidade é inteiro de 1 a 99. O teto é da tela, para um zero a mais não criar centenas de cópias. A API não define máximo.
 
 A casa padrão é a pessoa logada, entre os membros `accepted`. Outra casa só entra na lista se for `accepted` em todos os grupos marcados.
 
-Grupos: o da URL sempre entra. A opção "Vincular a todos os meus grupos" começa marcada quando a casa é a própria pessoa e, marcada, omite `group_ids` (a API vincula todos os grupos dela). Desmarcada, a pessoa escolhe outros grupos seus e a tela manda esses ids em `group_ids`. Se a casa deixa de ser a pessoa logada, a opção some e os grupos passam a ser explícitos: no mínimo o grupo atual. A tela não tenta adivinhar a interseção de membros de todos os grupos da casa alheia além dos que ela mesma marcou.
+Grupos: uma lista com Todos e cada grupo em que a casa escolhida já entrou. Todos começa marcado. A tela manda os ids marcados em `group_ids`. Trocar a casa marca de novo os grupos dessa pessoa. A casa só lista quem é `accepted` em todos os grupos marcados.
 
 Carta cadastrada permanece na lista mesmo com preço nulo.
 
@@ -295,7 +296,7 @@ Levar (`to_bring`): carta, quem pediu, deck de destino, se veio do bulk ou de um
 
 Receber (`to_receive`):
 
-- `pending_acceptance`: "Esperando aceite de {nick}". Ação: Cancelar.
+- `pending_acceptance`: "Esperando aceite de {nome}". Ação: Cancelar.
 - `awaiting_handoff`: "Esperando a carta". Ações: Cancelar e Confirmar.
 
 Confirmar é diálogo: "Confirme só se a carta já está na sua mão. A casa passa a ser você e ela entra no deck travada."
@@ -306,9 +307,9 @@ Lista vazia diz o que ela é. "Nada para levar neste grupo." e "Nada para recebe
 
 ### Membros
 
-Lista com nick, selo Dono no `owner_id`, e selo Convidado quando `status` é `invited`.
+Lista com nome e sobrenome, o e-mail embaixo, selo Dono no `owner_id`, e selo Convidado quando `status` é `invited`.
 
-Convidar pede o nick. 409: "Essa pessoa já foi convidada ou já está no grupo." Nick que a API não acha: o `detail`, ou "Não há conta com esse nick."
+Convidar pede o e-mail. 409: "Essa pessoa já foi convidada ou já está no grupo." E-mail que a API não acha: o `detail`, ou "Não há conta com esse e-mail."
 
 Renomear só para o dono.
 
@@ -371,14 +372,14 @@ Mutação não usa atualização otimista no estado da cópia. O 409 precisa do 
 
 Cobrança, frete, partida, push, e-mail de convite, bloqueio de deck ilegal, aceite de quem está com a carta no bulk, e teto de Commander 100, 200 e 500. A tela não calcula esses tetos por conta própria quando a regra ainda não existe.
 
-Também fica de fora: login direto no Supabase, busca no Scryfall pelo browser, preço pela LigaMagic pelo browser, expulsar membro, e mostrar deck ou nick de um grupo do qual a pessoa não participa.
+Também fica de fora: login direto no Supabase, busca no Scryfall pelo browser, preço pela LigaMagic pelo browser, expulsar membro, e mostrar deck ou e-mail de um grupo do qual a pessoa não participa.
 
 ## Ordem de implementação
 
 Cada etapa substitui o que a anterior deixou pela metade e fecha com o fluxo percorrido no navegador, no telefone e no desktop. A API da mesma etapa é a fonte. Onde a rota ainda não existe, a tela mostra o vazio descrito aqui e não simula carta, grupo ou pedido.
 
-1. Sessão. `src/lib/api/client.ts` com Bearer e refresh. `src/lib/auth/session.ts`. Schemas e telas de entrar, cadastrar, recuperar e `GET /me`. Layout protegido. Cabeçalho com nick e sair. Apagar publicações e o fallback do JSONPlaceholder. `VITE_API_URL` obrigatório.
-2. Grupos. Início, criar, layout do grupo, membros, convite, renomear, sair. Caixa de `GET /invitations` quando a rota existir.
+1. Sessão. `src/lib/api/client.ts` com Bearer e refresh. `src/lib/auth/session.ts`. Schemas e telas de entrar, cadastrar, recuperar e `GET /me`. Layout protegido. Cabeçalho com menu e tema. Apagar publicações e o fallback do JSONPlaceholder. `VITE_API_URL` obrigatório.
+2. Grupos. Início, criar, layout do grupo, membros, convite, caixa de `GET /invitations`, renomear, sair.
 3. Catálogo. Busca usada pelos formulários de cadastrar, ainda sem gravar cópia se a etapa 4 não entrou. Preço vazio é o estado normal.
 4. Bulk. Lista, filtros na URL, cadastrar com quantidade, casa e grupos, preço nulo, land básica a R$ 0,00, remover, compartilhar, atualizar preço.
 5. Decks. Criar, detalhe, avisos, orçamento do Commander 10, comandantes, cadastrar direto, pegar na hora a partir do bulk.

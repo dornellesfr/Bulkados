@@ -22,7 +22,7 @@ async def create_user(
     _admin: AdminUser,
 ) -> AdminUserRead:
     user = await auth_service.create_user(session, auth, body, body.level)
-    return AdminUserRead(id=user.id, nick=user.nick, email=user.email, level=user.level)
+    return AdminUserRead(id=user.id, email=user.email, level=user.level)
 
 
 @router.get("/catalog/sync", response_model=CatalogSyncStatus)
@@ -46,5 +46,5 @@ async def start_catalog_sync(
     _admin: AdminUser,
 ) -> CatalogSyncStatus:
     if not await catalog_control.start_sync(source):
-        raise DomainError(409, "catalog sync already running")
+        raise DomainError(409, "A atualização do catálogo já está em andamento.")
     return await catalog_control.get_status(session)

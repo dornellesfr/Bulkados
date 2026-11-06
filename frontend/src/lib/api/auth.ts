@@ -3,27 +3,50 @@ import { z } from 'zod'
 
 import { ApiError, apiRequest } from '@/lib/api/client'
 import {
-  identifierSchema,
-  nickSchema,
+  emailSchema,
+  familyNameSchema,
+  newPasswordSchema,
   passwordSchema,
+  personNameSchema,
   tokenSchema,
 } from '@/lib/api/schemas'
 import { setSession } from '@/lib/auth/session'
 
 export const loginInputSchema = z.object({
-  identifier: identifierSchema,
+  email: emailSchema,
   password: passwordSchema,
 })
 
 export const registerInputSchema = z.object({
-  email: z.email('Informe um e-mail válido.'),
-  password: passwordSchema,
-  nick: nickSchema,
+  first_name: personNameSchema,
+  last_name: familyNameSchema,
+  email: emailSchema,
+  password: newPasswordSchema,
+})
+
+export const profileInputSchema = z.object({
+  first_name: personNameSchema,
+  last_name: familyNameSchema,
 })
 
 export const forgotPasswordInputSchema = z.object({
-  identifier: identifierSchema,
+  email: emailSchema,
 })
+
+export const changePasswordInputSchema = z
+  .object({
+    current_password: z.string().min(1, 'Informe a senha atual.'),
+    new_password: newPasswordSchema,
+    confirm_password: z.string().min(1, 'Confirme a nova senha.'),
+  })
+  .refine((value) => value.new_password === value.confirm_password, {
+    message: 'A confirmação não é igual à nova senha.',
+    path: ['confirm_password'],
+  })
+  .refine((value) => value.new_password !== value.current_password, {
+    message: 'A nova senha precisa ser diferente da atual.',
+    path: ['new_password'],
+  })
 
 const registerResponseSchema = z.object({
   access_token: z.string().optional(),
@@ -37,7 +60,10 @@ const forgotPasswordResponseSchema = z.object({
 
 export const meSchema = z.object({
   id: z.string(),
-  nick: z.string(),
+  email: z.string(),
+  first_name: z.string(),
+  last_name: z.string(),
+  created_at: z.string(),
 })
 
 export const entrarSearchSchema = z.object({
@@ -46,11 +72,13 @@ export const entrarSearchSchema = z.object({
 })
 
 export const forgotPasswordFallback =
-  'Se existir uma conta, o e-mail de recuperação foi enviado.'
+  'Se existir uma conta com esse e-mail, enviamos as instruções para trocar a senha.'
 
 export type LoginInput = z.infer<typeof loginInputSchema>
 export type RegisterInput = z.infer<typeof registerInputSchema>
+export type ProfileInput = z.infer<typeof profileInputSchema>
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordInputSchema>
+export type ChangePasswordInput = z.infer<typeof changePasswordInputSchema>
 export type Me = z.infer<typeof meSchema>
 export type EntrarSearch = {
   redirect?: string
@@ -109,7 +137,7 @@ export async function register(input: RegisterInput) {
 
   if (hasTokenField) {
     throw new ApiError(
-      'A resposta da API não confere com o contrato esperado.',
+      'O servidor respondeu de um jeito inesperado. Atualize a página.',
       200,
     )
   }
@@ -131,6 +159,25 @@ export async function forgotPassword(input: ForgotPasswordInput) {
 
   const message = data.message?.trim()
   return message ? message : forgotPasswordFallback
+}
+
+export async function changePassword(input: ChangePasswordInput) {
+  const payload = changePasswordInputSchema.parse(input)
+  await apiRequest('/auth/password', z.null(), {
+    method: 'POST',
+    body: JSON.stringify({
+      current_password: payload.current_password,
+      new_password: payload.new_password,
+    }),
+  })
+}
+
+export async function updateProfile(input: ProfileInput) {
+  const payload = profileInputSchema.parse(input)
+  return apiRequest('/me', meSchema, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
 }
 
 export async function getMe(signal?: AbortSignal) {

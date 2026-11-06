@@ -33,6 +33,7 @@ import {
   invalidateMembership,
   toastError,
 } from '@/lib/api/invalidate'
+import { personName } from '@/lib/api/schemas'
 import { applyApiFormError } from '@/lib/form-error'
 
 export function MembersPage({ groupId }: { groupId: string }) {
@@ -48,7 +49,7 @@ export function MembersPage({ groupId }: { groupId: string }) {
 
   const inviteForm = useForm<InviteInput>({
     resolver: zodResolver(inviteInputSchema),
-    defaultValues: { nick: '' },
+    defaultValues: { email: '' },
   })
 
   const invite = useMutation({
@@ -58,7 +59,7 @@ export function MembersPage({ groupId }: { groupId: string }) {
       await invalidateMembership(queryClient)
     },
     onError: (error) => {
-      applyApiFormError(inviteForm.setError, error, { nick: 'nick' })
+      applyApiFormError(inviteForm.setError, error, { email: 'email' })
     },
   })
 
@@ -117,14 +118,16 @@ export function MembersPage({ groupId }: { groupId: string }) {
       >
         <FieldGroup>
           <Controller
-            name="nick"
+            name="email"
             control={inviteForm.control}
             render={({ field, fieldState }) => (
               <Field data-invalid={fieldState.invalid}>
-                <FieldLabel htmlFor="invite-nick">Nick</FieldLabel>
+                <FieldLabel htmlFor="invite-email">E-mail</FieldLabel>
                 <Input
                   {...field}
-                  id="invite-nick"
+                  id="invite-email"
+                  type="email"
+                  autoComplete="email"
                   aria-invalid={fieldState.invalid}
                 />
                 {fieldState.invalid ? (
@@ -150,7 +153,14 @@ export function MembersPage({ groupId }: { groupId: string }) {
             key={member.user_id}
             className="flex items-center justify-between gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10"
           >
-            <span className="font-medium">{member.nick}</span>
+            <span className="min-w-0">
+              <span className="block font-medium">
+                {personName(member)}
+              </span>
+              <span className="block truncate text-sm text-muted-foreground">
+                {member.email}
+              </span>
+            </span>
             <span className="flex gap-2">
               {group?.owner_id === member.user_id ? <Badge>Dono</Badge> : null}
               {member.status === 'invited' ? (

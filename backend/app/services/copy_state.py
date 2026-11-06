@@ -74,7 +74,7 @@ async def release_after_requester_cancel(
         mark_available(copy)
         return
     if request.source_deck_id is None:
-        raise DomainError(409, "request is missing its source deck")
+        raise DomainError(409, "Esse pedido perdeu o deck de origem.")
     copy.state = CopyState.in_deck
     copy.locked = False
     copy.deck_id = request.source_deck_id

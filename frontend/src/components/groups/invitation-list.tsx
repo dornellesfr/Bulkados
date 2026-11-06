@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { acceptInvitation, declineInvitation } from '@/lib/api/groups'
 import type { Invitation } from '@/lib/api/groups'
 import { invalidateMembership, toastError } from '@/lib/api/invalidate'
+import { personName } from '@/lib/api/schemas'
 
 export function InvitationList({
   invitations,
@@ -62,8 +63,8 @@ export function InvitationList({
           >
             <div>
               <p className="font-medium">{invitation.group.name}</p>
-              <p className="text-sm text-muted-foreground">
-                Convite de {invitation.invited_by.nick}
+              <p className="text-sm break-all text-muted-foreground">
+                Convite de {personName(invitation.invited_by)}
               </p>
             </div>
             <div className="flex gap-2">

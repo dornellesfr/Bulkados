@@ -1,4 +1,4 @@
-# Magic Bulk
+# bulkados
 
 App para um grupo de amigos montar decks de Commander a partir de um bulk compartilhado de cartas baratas. Este documento descreve o produto inteiro. O repositório atual implementa só o backend; a interface consome as regras daqui.
 
@@ -6,15 +6,15 @@ O formato de origem é o Commander 10: a soma das cartas que não são comandant
 
 ## Pessoas
 
-Cada pessoa tem uma conta e um nick único. O nick é o identificador usado no cadastro, no login e no convite.
+Cada pessoa tem uma conta identificada pelo e-mail. O e-mail é o identificador usado no cadastro, no login e no convite.
 
-O login aceita nick ou e-mail, com senha. A recuperação de senha usa o e-mail. A autenticação fica no Supabase; o nick e o restante dos dados do app ficam no backend.
+O login é e-mail e senha. A recuperação e a troca de senha usam esse e-mail. A autenticação fica no Supabase; o e-mail e o restante dos dados do app ficam no backend.
 
-No grupo, as pessoas se veem pelo nick.
+No grupo, as pessoas se veem pelo e-mail.
 
 ## Grupos
 
-Um grupo é um bulk com nome. Qualquer membro cria um grupo, convida pelo nick e a pessoa convidada aceita ou recusa. Uma pessoa participa de vários grupos ao mesmo tempo.
+Um grupo é um bulk com nome. Qualquer membro cria um grupo e convida pelo e-mail. O convite aparece na tela inicial de quem foi convidado, com o nome do grupo e o e-mail de quem convidou. Aceitar entra no grupo. Recusar apaga o convite. Enquanto o convite está pendente, esse grupo não entra na lista de grupos da pessoa e ela não vê cartas, decks nem membros. Uma pessoa participa de vários grupos ao mesmo tempo.
 
 Dentro do grupo, todo membro pode cadastrar cartas, montar decks e solicitar cartas. O deck é de uma pessoa, dentro daquele grupo. Outra pessoa não edita o deck dela.
 

@@ -67,7 +67,10 @@ async def _search_live(
     try:
         drafts = await catalog.search(query)
     except CatalogUnavailableError as exc:
-        raise DomainError(503, "catalog unavailable") from exc
+        raise DomainError(
+            503,
+            "O catálogo está indisponível agora. Tente de novo em instantes.",
+        ) from exc
     results: list[CatalogCardRead] = []
     for draft in drafts:
         card = await _upsert(session, draft)

@@ -45,7 +45,7 @@ async def test_creates_the_admin_with_the_development_password(auth_provider: Fa
     await _ensure(auth_provider, _settings())
 
     [admin] = await _users()
-    assert (admin.nick, admin.email, admin.level) == ("bulkados", EMAIL, 0)
+    assert (admin.email, admin.level) == (EMAIL, 0)
     assert auth_provider.users[EMAIL][0] == DEVELOPMENT_ADMIN_PASSWORD
 
 
@@ -86,14 +86,7 @@ async def test_without_email_or_outside_development_without_password_nothing_is_
 @pytest.mark.usefixtures("client")
 async def test_never_promotes_an_existing_common_user(auth_provider: FakeAuth) -> None:
     async with SessionFactory() as session:
-        session.add(
-            User(
-                id=uuid4(),
-                email="squatter@example.com",
-                nick="bulkados",
-                nick_normalized="bulkados",
-            )
-        )
+        session.add(User(id=uuid4(), email=EMAIL, first_name="Ada", last_name="Silva"))
         await session.commit()
 
     await _ensure(auth_provider, _settings())

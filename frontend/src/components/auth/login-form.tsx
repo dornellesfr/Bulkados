@@ -24,7 +24,7 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
   const form = useForm<LoginInput>({
     resolver: zodResolver(loginInputSchema),
     defaultValues: {
-      identifier: '',
+      email: '',
       password: '',
     },
   })
@@ -44,6 +44,7 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
             clearSession('expired')
           }
           applyApiFormError(form.setError, error, {
+            email: 'email',
             password: 'password',
           })
         }
@@ -51,15 +52,17 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
     >
       <FieldGroup>
         <Controller
-          name="identifier"
+          name="email"
           control={form.control}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="login-identifier">Nick ou e-mail</FieldLabel>
+              <FieldLabel htmlFor="login-email">E-mail</FieldLabel>
               <Input
                 {...field}
-                id="login-identifier"
-                autoComplete="username"
+                id="login-email"
+                type="email"
+                autoComplete="email"
+                className="h-10"
                 aria-invalid={fieldState.invalid}
               />
               {fieldState.invalid ? (
@@ -79,6 +82,7 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
                 id="login-password"
                 type="password"
                 autoComplete="current-password"
+                className="h-10"
                 aria-invalid={fieldState.invalid}
               />
               {fieldState.invalid ? (
@@ -93,7 +97,11 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
           {form.formState.errors.root.message}
         </p>
       ) : null}
-      <Button type="submit" disabled={form.formState.isSubmitting}>
+      <Button
+        type="submit"
+        className="h-10"
+        disabled={form.formState.isSubmitting}
+      >
         {form.formState.isSubmitting ? (
           <Loader2Icon className="animate-spin" />
         ) : null}

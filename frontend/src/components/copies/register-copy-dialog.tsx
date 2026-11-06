@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
   useMutation,
@@ -10,12 +10,14 @@ import { Loader2Icon } from 'lucide-react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
-import { CatalogSearch } from '@/components/copies/catalog-search'
+import { CardThumb } from '@/components/cards/card-thumb'
 import { CardTitle } from '@/components/cards/card-title'
+import { CatalogSearch } from '@/components/copies/catalog-search'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import {
   Field,
+  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -24,19 +26,46 @@ import { Input } from '@/components/ui/input'
 import { NativeSelect } from '@/components/ui/native-select'
 import type { CatalogCard } from '@/lib/api/catalog'
 import { createCopies } from '@/lib/api/copies'
+import { addDeckCopies, decksQueryOptions } from '@/lib/api/decks'
 import { groupsQueryOptions, membersQueryOptions } from '@/lib/api/groups'
-import type { Member } from '@/lib/api/groups'
+import type { Group, Member } from '@/lib/api/groups'
 import { invalidateBoard, toastError } from '@/lib/api/invalidate'
-import { quantitySchema } from '@/lib/api/schemas'
+import { personName, quantitySchema } from '@/lib/api/schemas'
 
-const formSchema = z.object({
-  quantity: quantitySchema,
-  holderId: z.string().min(1, 'Escolha a casa.'),
-  linkAll: z.boolean(),
-  groupIds: z.array(z.string()),
-})
+const formSchema = z
+  .object({
+    quantity: quantitySchema,
+    holderId: z.string(),
+    groupIds: z.array(z.string()),
+    deckId: z.string(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.deckId) {
+      return
+    }
+
+    if (!values.holderId) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['holderId'],
+        message: 'Escolha a casa.',
+      })
+    }
+
+    if (values.groupIds.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['groupIds'],
+        message: 'Escolha ao menos um grupo.',
+      })
+    }
+  })
 
 type FormValues = z.infer<typeof formSchema>
+
+function acceptedMembers(members: Array<Member>) {
+  return members.filter((member) => member.status === 'accepted')
+}
 
 function acceptedIntersection(lists: Array<Array<Member>>) {
   if (lists.length === 0) {
@@ -45,15 +74,24 @@ function acceptedIntersection(lists: Array<Array<Member>>) {
 
   const [first, ...rest] = lists
 
-  return first.filter(
-    (member) =>
-      member.status === 'accepted' &&
-      rest.every((list) =>
-        list.some(
-          (item) =>
-            item.user_id === member.user_id && item.status === 'accepted',
-        ),
+  return acceptedMembers(first).filter((member) =>
+    rest.every((list) =>
+      list.some(
+        (item) => item.user_id === member.user_id && item.status === 'accepted',
       ),
+    ),
+  )
+}
+
+function groupsForHolder(
+  groups: Array<Group>,
+  membersByGroup: Map<string, Array<Member>>,
+  holderId: string,
+) {
+  return groups.filter((group) =>
+    acceptedMembers(membersByGroup.get(group.id) ?? []).some(
+      (member) => member.user_id === holderId,
+    ),
   )
 }
 
@@ -69,35 +107,71 @@ export function RegisterCopyDialog({
   meId: string
 }) {
   const queryClient = useQueryClient()
+  const seeded = useRef(false)
   const [card, setCard] = useState<CatalogCard | null>(null)
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       quantity: 1,
       holderId: meId,
-      linkAll: true,
-      groupIds: [],
+      groupIds: [groupId],
+      deckId: '',
     },
   })
   const holderId = form.watch('holderId')
-  const linkAll = form.watch('linkAll')
   const groupIds = form.watch('groupIds')
+  const deckId = form.watch('deckId')
   const groups = useQuery({
     ...groupsQueryOptions(),
     enabled: open,
   })
-  const explicitGroupIds =
-    holderId === meId && linkAll ? [groupId] : [groupId, ...groupIds]
+  const decks = useQuery({
+    ...decksQueryOptions(groupId),
+    enabled: open,
+  })
+  const myDecks = decks.data ?? []
+  const allGroups = groups.data ?? []
   const memberQueries = useQueries({
-    queries: explicitGroupIds.map((id) => ({
-      ...membersQueryOptions(id),
+    queries: allGroups.map((group) => ({
+      ...membersQueryOptions(group.id),
       enabled: open,
     })),
   })
-  const membersReady = memberQueries.every((query) => query.isSuccess)
+  const membersReady =
+    allGroups.length > 0 && memberQueries.every((query) => query.isSuccess)
+  const membersByGroup = new Map(
+    allGroups.map((group, index) => [
+      group.id,
+      memberQueries[index]?.data ?? [],
+    ]),
+  )
+  const holderGroups = membersReady
+    ? groupsForHolder(allGroups, membersByGroup, holderId)
+    : allGroups
+  const scopeIds = groupIds.length > 0 ? groupIds : [groupId]
   const holders = membersReady
-    ? acceptedIntersection(memberQueries.map((query) => query.data))
+    ? acceptedIntersection(scopeIds.map((id) => membersByGroup.get(id) ?? []))
     : []
+  const allHolderGroupsSelected =
+    holderGroups.length > 0 &&
+    holderGroups.every((group) => groupIds.includes(group.id))
+
+  useEffect(() => {
+    if (!open) {
+      seeded.current = false
+      return
+    }
+
+    if (!groups.isSuccess || seeded.current) {
+      return
+    }
+
+    seeded.current = true
+    form.setValue(
+      'groupIds',
+      groups.data.map((group) => group.id),
+    )
+  }, [form, groups.data, groups.isSuccess, open])
 
   useEffect(() => {
     if (!open || !membersReady) {
@@ -109,21 +183,30 @@ export function RegisterCopyDialog({
     }
 
     form.setValue('holderId', meId)
-    form.setValue('linkAll', groupIds.length === 0)
-  }, [form, groupIds.length, holderId, holders, meId, membersReady, open])
+  }, [form, holderId, holders, meId, membersReady, open])
+
+  function selectGroups(next: Array<string>) {
+    form.setValue('groupIds', next, {
+      shouldValidate: form.formState.isSubmitted,
+    })
+  }
 
   const mutation = useMutation({
     mutationFn: () => {
       const values = form.getValues()
+
+      if (values.deckId) {
+        return addDeckCopies(values.deckId, {
+          oracle_id: card?.oracle_id ?? '',
+          quantity: values.quantity,
+        })
+      }
+
       return createCopies(groupId, {
         oracle_id: card?.oracle_id ?? '',
         quantity: values.quantity,
         ...(values.holderId !== meId ? { holder_id: values.holderId } : {}),
-        ...(values.holderId === meId && values.linkAll
-          ? {}
-          : values.groupIds.length > 0
-            ? { group_ids: values.groupIds }
-            : {}),
+        group_ids: values.groupIds,
       })
     },
     onSuccess: async () => {
@@ -132,8 +215,8 @@ export function RegisterCopyDialog({
       form.reset({
         quantity: 1,
         holderId: meId,
-        linkAll: true,
-        groupIds: [],
+        groupIds: allGroups.map((group) => group.id),
+        deckId: '',
       })
       onOpenChange(false)
     },
@@ -141,11 +224,6 @@ export function RegisterCopyDialog({
       toastError(error)
     },
   })
-
-  const otherGroups = (groups.data ?? []).filter(
-    (group) => group.id !== groupId,
-  )
-  const showLinkAll = holderId === meId
 
   return (
     <Dialog
@@ -160,15 +238,15 @@ export function RegisterCopyDialog({
           form.reset({
             quantity: 1,
             holderId: meId,
-            linkAll: true,
-            groupIds: [],
+            groupIds: [groupId],
+            deckId: '',
           })
         }
 
         onOpenChange(next)
       }}
       title="Cadastrar carta"
-      description="A casa padrão é você. O grupo desta página sempre entra."
+      description="Livre, qualquer um pode solicitar. Num deck seu, ela já entra travada com você."
     >
       {card ? (
         <form
@@ -176,17 +254,23 @@ export function RegisterCopyDialog({
           noValidate
           onSubmit={form.handleSubmit(() => mutation.mutateAsync())}
         >
-          <div className="flex items-start justify-between gap-3">
-            <CardTitle namePt={card.name_pt} nameEn={card.name_en} />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setCard(null)
-              }}
-            >
-              Trocar
-            </Button>
+          <div className="flex items-start gap-3">
+            <CardThumb
+              url={card.image_url}
+              className="aspect-[488/680] h-auto w-32 cursor-zoom-in rounded-lg ring-1 ring-foreground/10"
+            />
+            <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+              <CardTitle namePt={card.name_pt} nameEn={card.name_en} />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setCard(null)
+                }}
+              >
+                Trocar
+              </Button>
+            </div>
           </div>
           <FieldGroup>
             <Controller
@@ -216,96 +300,137 @@ export function RegisterCopyDialog({
               )}
             />
             <Controller
-              name="holderId"
+              name="deckId"
               control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="copy-holder">Casa</FieldLabel>
+              render={({ field }) => (
+                <Field>
+                  <FieldLabel htmlFor="copy-destination">Onde entra</FieldLabel>
                   <NativeSelect
-                    id="copy-holder"
+                    id="copy-destination"
                     value={field.value}
+                    disabled={decks.isPending}
                     onChange={(event) => {
-                      const next = event.target.value
-                      field.onChange(next)
-
-                      if (next === meId) {
-                        form.setValue('linkAll', true)
-                        form.setValue('groupIds', [])
-                      } else {
-                        form.setValue('linkAll', false)
-                      }
+                      field.onChange(event.target.value)
                     }}
-                    disabled={!membersReady}
-                    aria-invalid={fieldState.invalid}
                   >
-                    {holders.map((member) => (
-                      <option key={member.user_id} value={member.user_id}>
-                        {member.nick}
+                    <option value="">Livre no bulk</option>
+                    {myDecks.map((deck) => (
+                      <option key={deck.id} value={deck.id}>
+                        No deck {deck.name}
                       </option>
                     ))}
                   </NativeSelect>
-                  {fieldState.invalid ? (
-                    <FieldError errors={[fieldState.error]} />
-                  ) : null}
+                  <FieldDescription>
+                    {field.value
+                      ? 'Entra travada nesse deck, na sua casa. Se você já tem essa carta livre no bulk, essa cópia é a que entra.'
+                      : myDecks.length === 0 && decks.isSuccess
+                        ? 'Qualquer pessoa do grupo pode solicitar. Crie um deck neste grupo para ela já entrar com você.'
+                        : 'Qualquer pessoa do grupo pode solicitar.'}
+                  </FieldDescription>
                 </Field>
               )}
             />
+            {deckId ? null : (
+              <>
+                <Controller
+                  name="holderId"
+                  control={form.control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor="copy-holder">Casa</FieldLabel>
+                      <NativeSelect
+                        id="copy-holder"
+                        value={field.value}
+                        onChange={(event) => {
+                          const next = event.target.value
+                          field.onChange(next)
+                          if (!membersReady) {
+                            return
+                          }
+                          selectGroups(
+                            groupsForHolder(
+                              allGroups,
+                              membersByGroup,
+                              next,
+                            ).map((group) => group.id),
+                          )
+                        }}
+                        disabled={!membersReady}
+                        aria-invalid={fieldState.invalid}
+                      >
+                        {holders.map((member) => (
+                          <option key={member.user_id} value={member.user_id}>
+                            {personName(member)}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                      {fieldState.invalid ? (
+                        <FieldError errors={[fieldState.error]} />
+                      ) : null}
+                    </Field>
+                  )}
+                />
+                <Controller
+                  name="groupIds"
+                  control={form.control}
+                  render={({ fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel>Grupos</FieldLabel>
+                      <div className="flex flex-col gap-2 rounded-lg border border-input p-3">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={allHolderGroupsSelected}
+                            disabled={
+                              !membersReady || holderGroups.length === 0
+                            }
+                            onChange={(event) => {
+                              selectGroups(
+                                event.target.checked
+                                  ? holderGroups.map((group) => group.id)
+                                  : [],
+                              )
+                            }}
+                          />
+                          Todos
+                        </label>
+                        {holderGroups.map((group) => (
+                          <label
+                            key={group.id}
+                            className="flex items-center gap-2 text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={groupIds.includes(group.id)}
+                              disabled={!membersReady}
+                              onChange={(event) => {
+                                const next = event.target.checked
+                                  ? [...groupIds, group.id]
+                                  : groupIds.filter((id) => id !== group.id)
+                                selectGroups(next)
+                              }}
+                            />
+                            {group.name}
+                          </label>
+                        ))}
+                      </div>
+                      {fieldState.invalid ? (
+                        <FieldError errors={[fieldState.error]} />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          Marque onde essa carta fica.
+                        </p>
+                      )}
+                    </Field>
+                  )}
+                />
+              </>
+            )}
           </FieldGroup>
-          {showLinkAll ? (
-            <Controller
-              name="linkAll"
-              control={form.control}
-              render={({ field }) => (
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={field.value}
-                    onChange={(event) => {
-                      field.onChange(event.target.checked)
-                      if (event.target.checked) {
-                        form.setValue('groupIds', [])
-                      }
-                    }}
-                  />
-                  Vincular a todos os meus grupos
-                </label>
-              )}
-            />
-          ) : null}
-          {showLinkAll && linkAll ? null : (
-            <fieldset className="flex flex-col gap-2">
-              <legend className="text-sm font-medium">Outros grupos</legend>
-              <p className="text-sm text-muted-foreground">
-                Este grupo entra sempre. Marque os outros em que a carta também
-                fica.
-              </p>
-              {otherGroups.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Você não está em outro grupo.
-                </p>
-              ) : (
-                otherGroups.map((group) => (
-                  <label
-                    key={group.id}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={groupIds.includes(group.id)}
-                      onChange={(event) => {
-                        const next = event.target.checked
-                          ? [...groupIds, group.id]
-                          : groupIds.filter((id) => id !== group.id)
-                        form.setValue('groupIds', next)
-                      }}
-                    />
-                    {group.name}
-                  </label>
-                ))
-              )}
-            </fieldset>
-          )}
-          <Button type="submit" disabled={mutation.isPending || !membersReady}>
+          <Button
+            type="submit"
+            disabled={mutation.isPending || (!deckId && !membersReady)}
+          >
             {mutation.isPending ? (
               <Loader2Icon className="animate-spin" />
             ) : null}

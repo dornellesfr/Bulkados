@@ -73,4 +73,4 @@ def test_ready_returns_service_unavailable_when_database_is_down(
     response = client_without_database.get("/api/v1/ready")
 
     assert response.status_code == 503
-    assert response.json() == {"detail": "database unavailable"}
+    assert response.json() == {"detail": "O banco está indisponível."}

@@ -31,15 +31,16 @@ tests/           testes de unidade e integração
 
 ## Como rodar
 
-Na raiz do repositório, `docker compose up` sobe o Postgres, esta API e o frontend.
+Na raiz do repositório, `docker compose up` sobe esta API e o frontend. O banco vem da `DATABASE_URL` em `.env`.
 
-Para trabalhar só nesta pasta, suba o banco a partir da raiz e rode a API aqui:
+Para trabalhar só nesta pasta, suba o Postgres local a partir da raiz (se não for usar o remoto) e rode a API aqui:
 
 ```bash
 cp .env.example .env
-docker compose -f ../compose.yaml up db -d
+docker compose -f ../compose.yaml --profile local up db -d
 uv sync --all-groups
 uv run alembic upgrade head
+uv run python -m app.seed
 uv run uvicorn app.main:app --reload
 ```
 
@@ -69,6 +70,7 @@ Cada modelo novo precisa ser importado em `app/models/__init__.py` para entrar n
 ```bash
 uv run alembic revision --autogenerate -m "descricao"
 uv run alembic upgrade head
+uv run python -m app.seed
 ```
 
 A dependência `DbSession` abre a sessão do request e confirma a transação se a rota terminar sem erro.
@@ -83,16 +85,16 @@ Auth fica no Supabase. O backend precisa da URL, da chave anônima, da service r
 
 Cada usuário tem um `level`: `0` é admin e `1` é usuário comum (o padrão do cadastro público). As rotas em `/api/v1/admin` exigem nível 0, ficam fora do `/docs` e o frontend não as chama.
 
-`POST /api/v1/admin/users` cria um usuário com `email`, `password`, `nick` e, opcionalmente, `level` (`0` ou `1`). Use o access token de um admin (`POST /api/v1/auth/login`).
+`POST /api/v1/admin/users` cria um usuário com `email`, `password` e, opcionalmente, `level` (`0` ou `1`). Use o access token de um admin (`POST /api/v1/auth/login`).
 
-Ao subir, o backend cria em segundo plano o admin `bulkados`, se ele ainda não existir. Isso nunca atrasa nem derruba a subida: se falhar, o motivo vai para o log. Ele nunca promove um usuário que já exista com esse nick ou e-mail.
+`python -m app.seed`, logo depois de `alembic upgrade head`, grava o admin do `ADMIN_EMAIL` se esse e-mail ainda não existir. Um banco criado do zero passa por esse seed antes da API subir. A subida também tenta de novo, em segundo plano, e não derruba o processo se falhar: o motivo vai para o log. O seed e a subida nunca promovem um usuário que já exista com esse e-mail.
 
 | Variável | Para que serve |
 |---|---|
 | `ADMIN_EMAIL` | E-mail do admin. Sem ele, o admin não é criado |
 | `ADMIN_PASSWORD` | Senha do admin. Sem ela, só em `ENVIRONMENT=development` vale `@bulkados1234` |
 
-Em produção, defina `ENVIRONMENT=production` e `ADMIN_PASSWORD`. Se o `ENVIRONMENT` ficar de fora, o backend assume `development` e o admin nasce com a senha padrão. A senha precisa ter pelo menos o mínimo do Supabase (6 caracteres, o padrão). Se o admin já existir no Supabase mas o banco local foi recriado, o backend reaproveita a conta quando a senha confere. O nick `bulkados` é reservado: o cadastro público o recusa.
+Em produção, defina `ENVIRONMENT=production` e `ADMIN_PASSWORD`. Se o `ENVIRONMENT` ficar de fora, o backend assume `development` e o admin nasce com a senha padrão. A senha precisa ter pelo menos o mínimo do Supabase (6 caracteres, o padrão). Se o admin já existir no Supabase mas o banco local foi recriado, o backend reaproveita a conta quando a senha confere.
 
 ## Acervo de cartas
 
@@ -113,6 +115,6 @@ Rotas de admin (use o token do admin; veja a seção acima):
 ```bash
 TOKEN=$(curl -s -X POST http://127.0.0.1:8000/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"identifier":"bulkados","password":"..."}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+  -d '{"email":"admin@example.com","password":"..."}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 curl -s http://127.0.0.1:8000/api/v1/admin/catalog/sync -H "Authorization: Bearer $TOKEN"
 ```

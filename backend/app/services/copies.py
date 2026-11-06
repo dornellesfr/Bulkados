@@ -119,15 +119,15 @@ async def share_copy(
 ) -> CopyRead:
     copy = await lock_copy(session, copy_id)
     if copy is None:
-        raise DomainError(404, "copy not found")
+        raise DomainError(404, "Não encontramos essa carta.")
     if copy.holder_id != user.id:
-        raise DomainError(403, "only the holder can do this")
+        raise DomainError(403, "Só quem está com a carta pode fazer isso.")
     if copy.state is CopyState.reserved:
-        raise DomainError(409, "reserved copy cannot be shared")
+        raise DomainError(409, "Carta reservada não pode ser compartilhada.")
     if not await is_accepted(session, body.group_id, user.id):
-        raise DomainError(404, "group not found")
+        raise DomainError(404, "Não encontramos esse grupo.")
     if await is_linked(session, copy.id, body.group_id):
-        raise DomainError(409, "copy is already in this group")
+        raise DomainError(409, "Essa carta já está neste grupo.")
     session.add(CardCopyGroup(card_copy_id=copy.id, group_id=body.group_id))
     return await read_copy(session, copy)
 
@@ -135,11 +135,11 @@ async def share_copy(
 async def remove_copy(session: AsyncSession, user: User, copy_id: UUID) -> None:
     copy = await lock_copy(session, copy_id)
     if copy is None:
-        raise DomainError(404, "copy not found")
+        raise DomainError(404, "Não encontramos essa carta.")
     if copy.holder_id != user.id:
-        raise DomainError(403, "only the holder can do this")
+        raise DomainError(403, "Só quem está com a carta pode fazer isso.")
     if copy.state is not CopyState.available:
-        raise DomainError(409, "only an available copy can be removed")
+        raise DomainError(409, "Só uma carta livre pode sair do grupo.")
     await session.execute(delete(CardRequest).where(CardRequest.card_copy_id == copy.id))
     await session.execute(delete(CardCopyGroup).where(CardCopyGroup.card_copy_id == copy.id))
     await session.delete(copy)
@@ -153,9 +153,9 @@ async def refresh_price(
 ) -> CopyRead:
     copy = await lock_copy(session, copy_id)
     if copy is None:
-        raise DomainError(404, "copy not found")
+        raise DomainError(404, "Não encontramos essa carta.")
     if user.id not in {copy.holder_id, copy.added_by_id}:
-        raise DomainError(403, "only the holder or whoever added the copy can refresh the price")
+        raise DomainError(403, "Só quem está com a carta ou quem cadastrou pode atualizar o preço.")
     card = await _catalog_card(session, copy.catalog_card_id)
     cents, fetched_at = await quote_price(card, prices)
     copy.price_cents = cents
@@ -185,7 +185,7 @@ async def _holder(session: AsyncSession, user: User, holder_id: UUID | None) -> 
         return user
     holder = await session.get(User, holder_id)
     if holder is None:
-        raise DomainError(404, "holder not found")
+        raise DomainError(404, "Não encontramos essa pessoa no grupo.")
     return holder
 
 
@@ -198,36 +198,41 @@ async def _selected_groups(
 ) -> list[UUID]:
     if requested is None and holder.id == user.id:
         selected = await accepted_group_ids(session, user.id)
+    elif requested is None:
+        selected = [path_group_id]
     else:
-        selected = _dedupe([path_group_id, *(requested or [])])
+        selected = _dedupe(requested)
     if not selected:
-        raise DomainError(409, "copy must belong to at least one group")
+        raise DomainError(409, "A carta precisa ficar em pelo menos um grupo.")
     for group_id in selected:
         if not await is_accepted(session, group_id, user.id):
-            raise DomainError(404, "group not found")
+            raise DomainError(404, "Não encontramos esse grupo.")
         if holder.id != user.id and not await is_accepted(session, group_id, holder.id):
-            raise DomainError(409, "holder is not a member of every selected group")
+            raise DomainError(
+                409,
+                "A casa da carta precisa participar de todos os grupos escolhidos.",
+            )
     return selected
 
 
 async def _catalog_card(session: AsyncSession, catalog_card_id: UUID) -> CatalogCard:
     card = await session.get(CatalogCard, catalog_card_id)
     if card is None:
-        raise DomainError(404, "catalog card not found")
+        raise DomainError(404, "Não encontramos essa carta no catálogo.")
     return card
 
 
 async def catalog_card_by_oracle(session: AsyncSession, oracle_id: UUID) -> CatalogCard:
     card = await session.scalar(select(CatalogCard).where(CatalogCard.oracle_id == oracle_id))
     if card is None:
-        raise DomainError(404, "catalog card not found")
+        raise DomainError(404, "Não encontramos essa carta no catálogo.")
     return card
 
 
 async def _user(session: AsyncSession, user_id: UUID) -> User:
     user = await session.get(User, user_id)
     if user is None:
-        raise DomainError(404, "copy not found")
+        raise DomainError(404, "Não encontramos essa carta.")
     return user
 
 
@@ -291,7 +296,12 @@ def _dedupe(group_ids: list[UUID]) -> list[UUID]:
 
 
 def _person(user: User) -> PersonRef:
-    return PersonRef(id=user.id, nick=user.nick)
+    return PersonRef(
+        id=user.id,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+    )
 
 
 def _copy_read(

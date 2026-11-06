@@ -24,20 +24,20 @@ async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> User:
     if credentials is None or not credentials.credentials:
-        raise DomainError(401, "not authenticated")
+        raise DomainError(401, "Entre de novo para continuar.")
     try:
         user_id = await user_id_from_access_token(credentials.credentials, get_settings())
     except InvalidTokenError as exc:
-        raise DomainError(401, "not authenticated") from exc
+        raise DomainError(401, "Entre de novo para continuar.") from exc
     user = await session.get(User, user_id)
     if user is None:
-        raise DomainError(401, "not authenticated")
+        raise DomainError(401, "Entre de novo para continuar.")
     return user
 
 
 async def get_admin_user(user: Annotated[User, Depends(get_current_user)]) -> User:
     if user.level != ADMIN_LEVEL:
-        raise DomainError(403, "forbidden")
+        raise DomainError(403, "Você não pode fazer isso.")
     return user
 
 

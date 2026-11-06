@@ -20,6 +20,7 @@ function cleanSearch(search: BulkSearch): BulkSearch {
     ...(search.q ? { q: search.q } : {}),
     ...(search.estado ? { estado: search.estado } : {}),
     ...(search.destino ? { destino: search.destino } : {}),
+    ...(search.vista === 'lista' ? { vista: 'lista' as const } : {}),
   }
 }
 

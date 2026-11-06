@@ -23,6 +23,11 @@ function readStoredSession() {
 }
 
 let snapshot: SessionSnapshot = readStoredSession() ? signedIn : signedOutAtBoot
+let epoch = 0
+
+export function sessionEpoch() {
+  return epoch
+}
 
 function publish(next: SessionSnapshot) {
   if (snapshot.status === 'in' && next.status === 'in') {
@@ -66,12 +71,21 @@ export function getRefreshToken() {
 }
 
 export function setSession(accessToken: string, refreshToken: string) {
+  epoch += 1
   localStorage.setItem(ACCESS_TOKEN_KEY, accessToken)
   localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken)
   publish(signedIn)
 }
 
-export function clearSession(reason: 'logout' | 'expired') {
+export function clearSession(
+  reason: 'logout' | 'expired',
+  atEpoch?: number,
+) {
+  if (atEpoch !== undefined && atEpoch !== epoch) {
+    return
+  }
+
+  epoch += 1
   localStorage.removeItem(ACCESS_TOKEN_KEY)
   localStorage.removeItem(REFRESH_TOKEN_KEY)
   publish({ status: 'out', reason })

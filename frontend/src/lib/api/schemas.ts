@@ -8,8 +8,17 @@ export const tokenSchema = z.object({
 
 export const personSchema = z.object({
   id: z.string(),
-  nick: z.string(),
+  email: z.string(),
+  first_name: z.string(),
+  last_name: z.string(),
 })
+
+export function personName(person: {
+  first_name: string
+  last_name: string
+}) {
+  return `${person.first_name} ${person.last_name}`
+}
 
 export const deckFormatSchema = z.enum([
   'commander_10',
@@ -52,10 +61,19 @@ export const deckCatalogSchema = copyCatalogSchema.extend({
   partner_kind: partnerKindSchema.nullable(),
 })
 
-export const nickSchema = z
+export const emailSchema = z.email('Informe um e-mail válido.')
+
+export const personNameSchema = z
   .string()
   .trim()
-  .regex(/^[A-Za-z0-9_]{3,20}$/, 'Use 3 a 20 caracteres: letras, números e _.')
+  .min(1, 'Informe o nome.')
+  .max(80, 'Use no máximo 80 caracteres.')
+
+export const familyNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'Informe o sobrenome.')
+  .max(80, 'Use no máximo 80 caracteres.')
 
 export const groupNameSchema = z
   .string()
@@ -73,10 +91,10 @@ export const quantitySchema = z
 
 export const passwordSchema = z.string().min(1, 'Informe a senha.')
 
-export const identifierSchema = z
+export const newPasswordSchema = z
   .string()
-  .trim()
-  .min(1, 'Informe o nick ou o e-mail.')
+  .min(6, 'Use pelo menos 6 caracteres.')
+  .max(128, 'Use no máximo 128 caracteres.')
 
 export type Person = z.infer<typeof personSchema>
 export type DeckFormat = z.infer<typeof deckFormatSchema>

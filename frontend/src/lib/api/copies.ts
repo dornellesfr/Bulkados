@@ -36,10 +36,13 @@ export const copySchema = z.object({
   open_request: openRequestSchema.nullable(),
 })
 
+export const bulkViewSchema = z.enum(['cartas', 'lista'])
+
 export const bulkSearchSchema = z.object({
   q: z.string().trim().optional(),
   estado: copyVisibilitySchema.optional(),
   destino: z.string().optional(),
+  vista: bulkViewSchema.optional(),
 })
 
 export const createCopiesInputSchema = z.object({
@@ -51,11 +54,13 @@ export const createCopiesInputSchema = z.object({
 
 export type Copy = z.infer<typeof copySchema>
 export type CopyVisibility = z.infer<typeof copyVisibilitySchema>
+export type BulkView = z.infer<typeof bulkViewSchema>
 export type CreateCopiesInput = z.infer<typeof createCopiesInputSchema>
 export type BulkSearch = {
   q?: string
   estado?: CopyVisibility
   destino?: string
+  vista?: BulkView
 }
 
 export function parseBulkSearch(search: Record<string, unknown>): BulkSearch {
@@ -72,6 +77,10 @@ export function parseBulkSearch(search: Record<string, unknown>): BulkSearch {
 
   if (parsed.destino) {
     next.destino = parsed.destino
+  }
+
+  if (parsed.vista === 'lista') {
+    next.vista = 'lista'
   }
 
   return next
