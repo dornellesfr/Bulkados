@@ -99,8 +99,23 @@ async def test_an_ineligible_card_cannot_be_the_commander(client: AsyncClient) -
     accepted_status, _ = await set_commanders(client, deck, [ids["Azula"]])
 
     assert refused_status == 409
-    assert refused["detail"] == "Esta carta não pode ser comandante."
+    assert refused["detail"] == "Só cartas lendárias podem ser comandantes."
     assert accepted_status == 200
+
+
+@pytest.mark.integration
+async def test_only_legendary_cards_can_be_commanders(client: AsyncClient) -> None:
+    deck, ids = await deck_holding(
+        client,
+        {
+            "Impostor": await insert_card("Impostor", type_line="Creature — Human", commander=True),
+        },
+    )
+
+    status, body = await set_commanders(client, deck, [ids["Impostor"]])
+
+    assert status == 409
+    assert body["detail"] == "Só cartas lendárias podem ser comandantes."
 
 
 @pytest.mark.integration

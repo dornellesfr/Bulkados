@@ -36,7 +36,13 @@ def allows_any_number(oracle_text: str) -> bool:
     return _ANY_NUMBER in oracle_text.lower()
 
 
+def is_legendary(type_line: str) -> bool:
+    return "legendary" in type_line.casefold()
+
+
 def can_be_commander(type_line: str, oracle_text: str) -> bool:
+    if not is_legendary(type_line):
+        return False
     if _is_legendary_creature(type_line):
         return True
     return _CAN_BE_COMMANDER in oracle_text.lower()
