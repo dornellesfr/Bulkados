@@ -66,7 +66,7 @@ Acervo das cartas do Scryfall, uma linha por Oracle ID. Não é a cópia física
 
 `oracle_id` único, `name_en`, `name_pt` nulo se o Scryfall não tiver impressão em português, `search_en` e `search_pt` (o nome sem acento, em minúsculas e sem pontuação, indexados para a busca por prefixo), `mana_cost` nulo, `image_url` nulo (a imagem `normal` do Scryfall, só o link), `type_line`, `oracle_text`, `color_identity`, `keywords`, `is_basic`, `any_number_allowed`, `commander_legal` (`legal`, `banned`, `not_legal`), `can_be_commander`, `partner_kind` nulo ou um de `partner`, `partner_with`, `friends_forever`, `background`, `choose_a_background`, `doctors_companion`.
 
-`can_be_commander` é verdadeiro para criatura lendária e para carta cujo texto permite ser comandante. O pareamento (Partner, Background, etc.) fica em `partner_kind`, lido das keywords e do oracle text em inglês do Scryfall. A interface mostra o nome em português quando existir e o nome em inglês como alternativa.
+`can_be_commander` é verdadeiro só para carta lendária: criatura lendária ou carta lendária cujo texto permite ser comandante. O pareamento (Partner, Background, etc.) fica em `partner_kind`, lido das keywords e do oracle text em inglês do Scryfall. A interface mostra o nome em português quando existir e o nome em inglês como alternativa.
 
 ### catalog_sync
 
@@ -233,7 +233,7 @@ Só a casa, só `available`. Apaga vínculos, a cópia e nada de deck. Pedido en
 
 ### Marcar comandante
 
-O dono do deck define quais cartas do deck têm `role=commander`. O backend recusa com 409 a carta que não pode ser comandante e o par que não é válido (Partner com Partner, Partner with citando o outro, Friends forever, Choose a Background com Background, Doctor com Doctor's companion). Mais de dois comandantes também. Recusa com 409, listando as cartas, se alguma outra carta do deck ficaria fora da identidade de cor dos comandantes escolhidos; a lista vazia sempre vale. As outras regras do deck seguem só como aviso na leitura.
+O dono do deck define quais cartas do deck têm `role=commander`. O backend recusa com 409 a carta que não é lendária ou que não pode ser comandante e o par que não é válido (Partner com Partner, Partner with citando o outro, Friends forever, Choose a Background com Background, Doctor com Doctor's companion). Mais de dois comandantes também. Recusa com 409, listando as cartas, se alguma outra carta do deck ficaria fora da identidade de cor dos comandantes escolhidos; a lista vazia sempre vale. As outras regras do deck seguem só como aviso na leitura.
 
 Cada carta do deck traz `can_toggle_commander`: marcar (ou tirar) aquela carta deixaria o conjunto de comandantes válido? A tela usa isso para oferecer o botão.
 
@@ -250,12 +250,12 @@ Sempre:
 - `duplicate_name` por nome inglês extra, exceto land básica e `any_number_allowed`;
 - `color_identity` quando a identidade da carta não cabe na união da identidade dos comandantes;
 - `banned` quando `commander_legal` é `banned`;
-- `commander_illegal` quando um comandante tem `can_be_commander` falso e o `partner_kind` não sustenta a cadeira (Background entra como segundo comandante, não como criatura lendária);
+- `commander_illegal` quando um comandante não é lendário, ou tem `can_be_commander` falso e o `partner_kind` não sustenta a cadeira (Background entra como segundo comandante, não como criatura lendária);
 - `commander_pairing` quando há zero comandantes, ou mais de um sem combinação válida.
 
 Combinação válida:
 
-- um comandante com `can_be_commander`;
+- um comandante lendário com `can_be_commander`;
 - dois com `partner`;
 - dois com `partner_with` cujos textos se apontam;
 - dois com `friends_forever`;

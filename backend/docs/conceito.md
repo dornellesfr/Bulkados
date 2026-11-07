@@ -58,7 +58,7 @@ Além do tamanho e do preço, o deck avisa as regras do Commander usual, sem blo
 
 - a identidade de cor de cada carta cabe na identidade dos comandantes;
 - não há duas cartas com o mesmo nome, com as exceções de land básica e de carta que permite qualquer quantidade daquele nome;
-- o comandante é elegível: criatura lendária, ou carta que pode ser comandante pela própria regra;
+- o comandante é elegível: a carta é lendária e é criatura ou tem texto que permite ser comandante;
 - a combinação de comandantes fecha (um comandante, ou uma dupla válida de Partner, Partner with, Friends forever, Background ou Doctor's Companion);
 - carta banida no Commander.
 
@@ -68,7 +68,7 @@ Lands básicas contam nas 100 cartas, custam zero e podem repetir o nome.
 
 Duas regras bloqueiam, porque o resto do deck depende delas:
 
-- só uma carta que pode ser comandante vira comandante: criatura lendária, planeswalker ou carta cujo texto diz que pode ser o comandante. Dois comandantes só valem como uma dupla válida: Partner, Partner with (cada um citando o outro), Friends forever, Choose a Background com um Background, ou Doctor com Doctor's companion. A tela oferece "Marcar comandante" só quando a escolha fica válida, e a API recusa o resto;
+- só uma carta lendária que pode ser comandante vira comandante: criatura lendária ou carta lendária cujo texto diz que pode ser o comandante. Dois comandantes só valem como uma dupla válida: Partner, Partner with (cada um citando o outro), Friends forever, Choose a Background com um Background, ou Doctor com Doctor's companion. A tela oferece "Marcar comandante" só quando a escolha fica válida, e a API recusa o resto;
 - a identidade de cor do deck é a união das cores dos comandantes. Com comandante, o app recusa a carta cuja identidade sai dela: ao adicionar, selecionar do bulk, mover de outro deck ou solicitar. Sem comandante, não há limite. Carta incolor cabe em qualquer deck.
 
 A identidade aparece com os ícones das cores e o nome da combinação (Azorius, Bant, Mono-verde, Incolor, Cinco cores). Incolor é só do deck cujo comandante não tem cor, como Karn ou Ullamog. Marcar comandante também respeita a identidade: se o deck tem carta fora da identidade que os comandantes passariam a ter, o app recusa e diz quais cartas atrapalham. Tirar todos os comandantes sempre é possível, e sem comandante não há limite.
