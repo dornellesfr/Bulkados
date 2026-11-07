@@ -10,7 +10,7 @@ export const Route = createFileRoute('/_app/grupos/$groupId/')({
   loader: ({ context, params }) =>
     Promise.all([
       context.queryClient.ensureQueryData(copiesQueryOptions(params.groupId)),
-      context.queryClient.ensureQueryData(decksQueryOptions(params.groupId)),
+      context.queryClient.ensureQueryData(decksQueryOptions()),
     ]),
   component: BulkRoute,
 })
@@ -19,6 +19,8 @@ function cleanSearch(search: BulkSearch): BulkSearch {
   return {
     ...(search.q ? { q: search.q } : {}),
     ...(search.estado ? { estado: search.estado } : {}),
+    ...(search.cores && search.cores.length > 0 ? { cores: search.cores } : {}),
+    ...(search.cmc ? { cmc: search.cmc } : {}),
     ...(search.destino ? { destino: search.destino } : {}),
     ...(search.vista === 'lista' ? { vista: 'lista' as const } : {}),
   }

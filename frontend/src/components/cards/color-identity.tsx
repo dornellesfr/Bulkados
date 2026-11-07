@@ -1,4 +1,4 @@
-const symbolNames: Record<string, string> = {
+export const colorNames: Record<string, string> = {
   W: 'Branco',
   U: 'Azul',
   B: 'Preto',
@@ -7,8 +7,12 @@ const symbolNames: Record<string, string> = {
   C: 'Incolor',
 }
 
-function symbolUrl(symbol: string) {
+export function colorSymbolUrl(symbol: string) {
   return `https://svgs.scryfall.io/card-symbols/${symbol}.svg`
+}
+
+function symbolUrl(symbol: string) {
+  return colorSymbolUrl(symbol)
 }
 
 export function ColorIdentity({
@@ -30,8 +34,8 @@ export function ColorIdentity({
         <img
           key={symbol}
           src={symbolUrl(symbol)}
-          alt={symbolNames[symbol] ?? symbol}
-          title={symbolNames[symbol] ?? symbol}
+          alt={colorNames[symbol] ?? symbol}
+          title={colorNames[symbol] ?? symbol}
           className="size-4"
         />
       ))}

@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import {
+  ArrowRightLeftIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   LayoutGridIcon,
   ListIcon,
+  LockIcon,
 } from 'lucide-react'
 import {
   useQuery,
@@ -13,13 +15,20 @@ import {
 
 import { CardThumb } from '@/components/cards/card-thumb'
 import { CardTitle } from '@/components/cards/card-title'
+import {
+  ColorIdentity,
+  colorNames,
+  colorSymbolUrl,
+} from '@/components/cards/color-identity'
 import { ManaCost } from '@/components/cards/mana-cost'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { CopyDetailDialog } from '@/components/copies/copy-detail-dialog'
+import { CopyMark, CopyMarkBadge } from '@/components/copies/copy-mark'
 import { RegisterCopyDialog } from '@/components/copies/register-copy-dialog'
-import { CreateDeckDialog } from '@/components/decks/create-deck-dialog'
+import { SelectDeckDialog } from '@/components/decks/select-deck-dialog'
+import type { DeckMode } from '@/components/decks/select-deck-dialog'
 import { PageHeader } from '@/components/layout/page-header'
 import { ActionMenu } from '@/components/ui/action-menu'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -31,54 +40,58 @@ import {
   filterCopies,
   refreshCopyPrice,
   shareCopy,
+  unlinkCopy,
 } from '@/lib/api/copies'
 import type {
+  BulkEstado,
   BulkSearch,
   BulkView,
+  ColorCode,
   Copy,
-  CopyVisibility,
+  ManaBucket,
 } from '@/lib/api/copies'
-import {
-  decksQueryOptions,
-  listDecks,
-  lockDeckCard,
-  moveDeckCard,
-  returnDeckCard,
-  takeCopy,
-  unlockDeckCard,
-} from '@/lib/api/decks'
+import { decksQueryOptions } from '@/lib/api/decks'
 import { groupsQueryOptions } from '@/lib/api/groups'
 import { personName } from '@/lib/api/schemas'
 import { invalidateBoard, reportBoardError } from '@/lib/api/invalidate'
+import { cancelRequest } from '@/lib/api/requests'
 import {
-  acceptRequest,
-  cancelRequest,
-  rejectRequest,
-  requestCopy,
-} from '@/lib/api/requests'
-import {
+  bulkPrimary,
+  bulkPrimaryLabel,
   copyActionLabel,
   copyStateText,
-  planBulkActions,
+  planBulkMenu,
 } from '@/lib/copy-actions'
 import type { CopyAction } from '@/lib/copy-actions'
 import { groupCopies, summarizeStates } from '@/lib/copy-groups'
-import { formatColorIdentity, isLegendary } from '@/lib/display'
+import { isLegendary } from '@/lib/display'
 import { formatCopyPrice } from '@/lib/money'
 import { cn } from '@/lib/utils'
 
-const visibilityOptions: Array<{ value: CopyVisibility | ''; label: string }> =
-  [
-    { value: '', label: 'Todos os estados' },
-    { value: 'available', label: 'Livre' },
-    { value: 'reserved', label: 'Reservada' },
-    { value: 'in_deck', label: 'No deck' },
-    { value: 'in_use_elsewhere', label: 'Em uso em outro grupo' },
-  ]
+const visibilityOptions: Array<{ value: BulkEstado | ''; label: string }> = [
+  { value: '', label: 'Livre' },
+  { value: 'todas', label: 'Todas' },
+  { value: 'in_deck', label: 'Reservadas' },
+]
+
+const colorCodes: Array<ColorCode> = ['W', 'U', 'B', 'R', 'G', 'C']
+
+const manaOptions: Array<{ value: ManaBucket | ''; label: string }> = [
+  { value: '', label: 'Custo de mana' },
+  { value: '0', label: 'Custo 0' },
+  { value: '1', label: 'Custo 1' },
+  { value: '2', label: 'Custo 2' },
+  { value: '3', label: 'Custo 3' },
+  { value: '4', label: 'Custo 4' },
+  { value: '5', label: 'Custo 5' },
+  { value: '6', label: 'Custo 6' },
+  { value: '7+', label: 'Custo 7+' },
+]
 
 type PendingDeck = {
-  copyId: string
-  mode: 'take' | 'request'
+  copy: Copy
+  mode: DeckMode
+  fromDeckId?: string
 }
 
 export function BulkPage({
@@ -93,18 +106,16 @@ export function BulkPage({
   const queryClient = useQueryClient()
   const { data: me } = useSuspenseQuery(meQueryOptions())
   const { data: copies } = useSuspenseQuery(copiesQueryOptions(groupId))
-  const { data: decks } = useSuspenseQuery(decksQueryOptions(groupId))
+  const { data: decks } = useSuspenseQuery(decksQueryOptions())
   const visible = filterCopies(copies, search)
   const view: BulkView = search.vista === 'lista' ? 'lista' : 'cartas'
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [registerOpen, setRegisterOpen] = useState(false)
-  const [shareTarget, setShareTarget] = useState<Copy | null>(null)
   const [removeTarget, setRemoveTarget] = useState<Copy | null>(null)
   const [cancelTarget, setCancelTarget] = useState<Copy | null>(null)
-  const [returnTarget, setReturnTarget] = useState<Copy | null>(null)
-  const [moveTarget, setMoveTarget] = useState<Copy | null>(null)
-  const [choice, setChoice] = useState<PendingDeck | null>(null)
-  const [createFor, setCreateFor] = useState<PendingDeck | null>(null)
+  const [pendingDeck, setPendingDeck] = useState<PendingDeck | null>(null)
+  const [groupsTarget, setGroupsTarget] = useState<Copy | null>(null)
+  const [detail, setDetail] = useState<Copy | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   async function run(key: string, action: () => Promise<unknown>) {
@@ -119,45 +130,28 @@ export function BulkPage({
     }
   }
 
-  function bindDeck(copyId: string, mode: 'take' | 'request', deckId: string) {
-    const key = `${mode}:${copyId}`
-    void run(key, () =>
-      mode === 'take' ? takeCopy(deckId, copyId) : requestCopy(deckId, copyId),
-    )
-  }
-
-  function startDeckAction(copyId: string, mode: 'take' | 'request') {
-    if (search.destino && decks.some((deck) => deck.id === search.destino)) {
-      bindDeck(copyId, mode, search.destino)
+  function selectCopy(copy: Copy) {
+    if (copy.visibility === 'in_deck' && copy.deck?.owner.id === me.id) {
+      setPendingDeck({ copy, mode: 'move', fromDeckId: copy.deck.id })
       return
     }
 
-    if (decks.length === 0) {
-      setCreateFor({ copyId, mode })
+    if (copy.holder.id === me.id) {
+      setPendingDeck({ copy, mode: 'take' })
       return
     }
 
-    if (decks.length === 1) {
-      bindDeck(copyId, mode, decks[0].id)
-      return
-    }
-
-    setChoice({ copyId, mode })
+    setPendingDeck({ copy, mode: 'request' })
   }
 
   function perform(copy: Copy, action: CopyAction) {
-    if (action === 'take') {
-      startDeckAction(copy.id, 'take')
-      return
-    }
-
     if (action === 'request') {
-      startDeckAction(copy.id, 'request')
+      setPendingDeck({ copy, mode: 'request' })
       return
     }
 
-    if (action === 'share') {
-      setShareTarget(copy)
+    if (action === 'groups') {
+      setGroupsTarget(copy)
       return
     }
 
@@ -171,46 +165,8 @@ export function BulkPage({
       return
     }
 
-    if (action === 'return') {
-      setReturnTarget(copy)
-      return
-    }
-
-    if (action === 'move') {
-      setMoveTarget(copy)
-      return
-    }
-
     if (action === 'refresh') {
       void run(`refresh:${copy.id}`, () => refreshCopyPrice(copy.id))
-      return
-    }
-
-    if (action === 'accept' && copy.open_request) {
-      const requestId = copy.open_request.id
-      void run(`accept:${copy.id}`, () => acceptRequest(requestId))
-      return
-    }
-
-    if (action === 'reject' && copy.open_request) {
-      const requestId = copy.open_request.id
-      void run(`reject:${copy.id}`, () => rejectRequest(requestId))
-      return
-    }
-
-    const deckId = copy.deck?.id
-
-    if (!deckId) {
-      return
-    }
-
-    if (action === 'lock') {
-      void run(`lock:${copy.id}`, () => lockDeckCard(deckId, copy.id))
-      return
-    }
-
-    if (action === 'unlock') {
-      void run(`unlock:${copy.id}`, () => unlockDeckCard(deckId, copy.id))
     }
   }
 
@@ -228,6 +184,10 @@ export function BulkPage({
     })
   }
 
+  const openCopy = detail
+    ? (copies.find((copy) => copy.id === detail.id) ?? null)
+    : null
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -243,55 +203,105 @@ export function BulkPage({
           </Button>
         }
       />
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <form
-          className="flex w-full min-w-0 flex-1 flex-col gap-2 sm:w-auto sm:flex-row"
-          onSubmit={(event) => {
-            event.preventDefault()
-            const formData = new FormData(event.currentTarget)
-            const q = String(formData.get('q') ?? '').trim()
-            onSearchChange({
-              ...search,
-              ...(q ? { q } : { q: undefined }),
-            })
-          }}
-        >
-          <Input
-            name="q"
-            defaultValue={search.q ?? ''}
-            placeholder="Filtrar por nome"
-            aria-label="Filtrar por nome"
-          />
-          <NativeSelect
-            aria-label="Estado"
-            value={search.estado ?? ''}
-            onChange={(event) => {
-              const estado = event.target.value as CopyVisibility | ''
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <form
+            className="flex w-full min-w-0 flex-1 flex-col gap-2 sm:w-auto sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault()
+              const formData = new FormData(event.currentTarget)
+              const q = String(formData.get('q') ?? '').trim()
               onSearchChange({
                 ...search,
-                estado: estado || undefined,
+                ...(q ? { q } : { q: undefined }),
               })
             }}
           >
-            {visibilityOptions.map((option) => (
+            <Input
+              name="q"
+              defaultValue={search.q ?? ''}
+              placeholder="Filtrar por nome"
+              aria-label="Filtrar por nome"
+            />
+            <NativeSelect
+              aria-label="Estado"
+              className="sm:w-40"
+              value={search.estado ?? ''}
+              onChange={(event) => {
+                const estado = event.target.value as BulkEstado | ''
+                onSearchChange({
+                  ...search,
+                  estado: estado || undefined,
+                })
+              }}
+            >
+              {visibilityOptions.map((option) => (
+                <option key={option.label} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </NativeSelect>
+            <Button type="submit" variant="outline">
+              Filtrar
+            </Button>
+          </form>
+          <OrganizationToggle
+            view={view}
+            onChange={(vista) => {
+              onSearchChange({
+                ...search,
+                vista: vista === 'lista' ? 'lista' : undefined,
+              })
+            }}
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <ColorFilter
+            selected={search.cores ?? []}
+            onToggle={(color) => {
+              const current = search.cores ?? []
+              const cores = current.includes(color)
+                ? current.filter((item) => item !== color)
+                : [...current, color]
+              onSearchChange({
+                ...search,
+                cores: cores.length > 0 ? cores : undefined,
+              })
+            }}
+          />
+          <NativeSelect
+            aria-label="Custo de mana"
+            className="w-40"
+            value={search.cmc ?? ''}
+            onChange={(event) => {
+              const cmc = event.target.value as ManaBucket | ''
+              onSearchChange({
+                ...search,
+                cmc: cmc || undefined,
+              })
+            }}
+          >
+            {manaOptions.map((option) => (
               <option key={option.label} value={option.value}>
                 {option.label}
               </option>
             ))}
           </NativeSelect>
-          <Button type="submit" variant="outline">
-            Filtrar
-          </Button>
-        </form>
-        <OrganizationToggle
-          view={view}
-          onChange={(vista) => {
-            onSearchChange({
-              ...search,
-              vista: vista === 'lista' ? 'lista' : undefined,
-            })
-          }}
-        />
+          {search.q || search.estado || search.cores || search.cmc ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                onSearchChange({
+                  destino: search.destino,
+                  vista: search.vista,
+                })
+              }}
+            >
+              Limpar filtros
+            </Button>
+          ) : null}
+        </div>
       </div>
       {visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -307,6 +317,8 @@ export function BulkPage({
           busy={busy}
           onToggle={toggle}
           onPerform={perform}
+          onInspect={setDetail}
+          onPrimary={selectCopy}
         />
       ) : (
         <BulkGrid
@@ -314,6 +326,8 @@ export function BulkPage({
           meId={me.id}
           busy={busy}
           onPerform={perform}
+          onInspect={setDetail}
+          onPrimary={selectCopy}
         />
       )}
       <RegisterCopyDialog
@@ -322,18 +336,38 @@ export function BulkPage({
         groupId={groupId}
         meId={me.id}
       />
-      <ShareDialog
-        copy={shareTarget}
+      <GroupsDialog
+        copy={groupsTarget}
         groupId={groupId}
         onOpenChange={(open) => {
           if (!open) {
-            setShareTarget(null)
+            setGroupsTarget(null)
           }
         }}
-        onShared={() => {
-          setShareTarget(null)
-          return invalidateBoard(queryClient)
+        onChanged={async (next) => {
+          setGroupsTarget(next)
+          await invalidateBoard(queryClient)
         }}
+      />
+      <CopyDetailDialog
+        copy={openCopy}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDetail(null)
+          }
+        }}
+        actions={
+          openCopy ? (
+            <CopyActionButtons
+              copy={openCopy}
+              meId={me.id}
+              busy={busy}
+              buttonClassName="w-40 max-w-full"
+              onPerform={perform}
+              onPrimary={selectCopy}
+            />
+          ) : null
+        }
       />
       <ConfirmDialog
         open={removeTarget != null}
@@ -380,99 +414,70 @@ export function BulkPage({
           void run(`cancel:${copyId}`, () => cancelRequest(requestId))
         }}
       />
-      <ConfirmDialog
-        open={returnTarget != null}
+      <SelectDeckDialog
+        open={pendingDeck != null}
         onOpenChange={(open) => {
           if (!open) {
-            setReturnTarget(null)
+            setPendingDeck(null)
           }
         }}
-        title="Devolver ao bulk"
-        description="A carta sai do deck e volta a ficar livre na sua casa."
-        confirmLabel="Devolver"
-        pending={busy != null}
-        onConfirm={() => {
-          const deckId = returnTarget?.deck?.id
-
-          if (!returnTarget || !deckId) {
-            return
-          }
-
-          const copyId = returnTarget.id
-          setReturnTarget(null)
-          void run(`return:${copyId}`, () => returnDeckCard(deckId, copyId))
-        }}
-      />
-      <MoveDialog
-        copy={moveTarget}
-        onOpenChange={(open) => {
-          if (!open) {
-            setMoveTarget(null)
-          }
-        }}
-        pending={busy != null}
-        onMove={(targetDeckId) => {
-          const deckId = moveTarget?.deck?.id
-
-          if (!moveTarget || !deckId) {
-            return
-          }
-
-          const copyId = moveTarget.id
-          setMoveTarget(null)
-          void run(`move:${copyId}`, () =>
-            moveDeckCard(deckId, copyId, targetDeckId),
-          )
-        }}
-      />
-      <Dialog
-        open={choice != null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setChoice(null)
-          }
-        }}
-        title={
-          choice?.mode === 'request' ? 'Solicitar para o deck' : 'Pegar no deck'
-        }
-      >
-        <ul className="flex flex-col gap-2">
-          {decks.map((deck) => (
-            <li key={deck.id}>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => {
-                  if (choice) {
-                    bindDeck(choice.copyId, choice.mode, deck.id)
-                  }
-
-                  setChoice(null)
-                }}
-              >
-                {deck.name}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      </Dialog>
-      <CreateDeckDialog
-        open={createFor != null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setCreateFor(null)
-          }
-        }}
+        copy={pendingDeck?.copy ?? null}
+        mode={pendingDeck?.mode ?? 'take'}
+        fromDeckId={pendingDeck?.fromDeckId}
         groupId={groupId}
-        onCreated={(deck) => {
-          if (createFor) {
-            bindDeck(createFor.copyId, createFor.mode, deck.id)
-          }
-
-          setCreateFor(null)
+        decks={
+          pendingDeck?.mode === 'move' && pendingDeck.fromDeckId
+            ? decks.filter((deck) => deck.id !== pendingDeck.fromDeckId)
+            : decks
+        }
+        preferredDeckId={search.destino}
+        onDone={async () => {
+          setPendingDeck(null)
+          await invalidateBoard(queryClient)
         }}
       />
+    </div>
+  )
+}
+
+function ColorFilter({
+  selected,
+  onToggle,
+}: {
+  selected: Array<ColorCode>
+  onToggle: (color: ColorCode) => void
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Filtrar por cor"
+      className="flex flex-wrap items-center gap-1"
+    >
+      {colorCodes.map((color) => {
+        const active = selected.includes(color)
+
+        return (
+          <button
+            key={color}
+            type="button"
+            aria-pressed={active}
+            title={colorNames[color]}
+            onClick={() => {
+              onToggle(color)
+            }}
+            className={cn(
+              'flex size-8 items-center justify-center rounded-full ring-1 ring-foreground/15 transition-colors hover:bg-muted',
+              active && 'bg-muted ring-2 ring-foreground/60',
+            )}
+          >
+            <img
+              src={colorSymbolUrl(color)}
+              alt={colorNames[color]}
+              className="size-5"
+            />
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -529,19 +534,21 @@ function CopyActionButtons({
   meId,
   busy,
   onPerform,
+  onPrimary,
   stretch = false,
+  buttonClassName,
 }: {
   copy: Copy
   meId: string
   busy: string | null
   onPerform: (copy: Copy, action: CopyAction) => void
+  onPrimary: (copy: Copy) => void
   stretch?: boolean
+  buttonClassName?: string
 }) {
-  const plan = planBulkActions(copy, meId)
-
-  if (plan.buttons.length === 0 && plan.menu.length === 0) {
-    return null
-  }
+  const primary = bulkPrimary(copy, meId)
+  const menu = planBulkMenu(copy, meId)
+  const unavailable = primary === 'unavailable'
 
   return (
     <div
@@ -550,36 +557,30 @@ function CopyActionButtons({
         stretch ? 'w-full' : 'shrink-0 justify-end',
       )}
     >
-      {plan.buttons.slice(0, 1).map((action) => (
-        <Button
-          key={action}
-          type="button"
-          className={
-            stretch ? 'h-auto min-w-0 flex-1 whitespace-normal py-1' : undefined
+      <Button
+        type="button"
+        variant={unavailable ? 'outline' : 'default'}
+        className={
+          stretch
+            ? 'h-auto min-w-0 flex-1 whitespace-normal py-1'
+            : buttonClassName
+        }
+        disabled={busy != null || unavailable}
+        onClick={() => {
+          if (primary === 'request') {
+            onPerform(copy, 'request')
+            return
           }
-          disabled={busy != null}
-          onClick={() => {
-            onPerform(copy, action)
-          }}
-        >
-          {copyActionLabel[action]}
-        </Button>
-      ))}
-      {plan.buttons.slice(1).map((action) => (
-        <Button
-          key={action}
-          type="button"
-          variant="outline"
-          disabled={busy != null}
-          onClick={() => {
-            onPerform(copy, action)
-          }}
-        >
-          {copyActionLabel[action]}
-        </Button>
-      ))}
+
+          onPrimary(copy)
+        }}
+      >
+        {unavailable && copy.locked ? <LockIcon /> : null}
+        {primary === 'request' ? <ArrowRightLeftIcon /> : null}
+        {bulkPrimaryLabel(primary)}
+      </Button>
       <ActionMenu
-        items={plan.menu.map((action) => ({
+        items={menu.map((action) => ({
           id: action,
           label: copyActionLabel[action],
           destructive: action === 'remove',
@@ -597,9 +598,10 @@ function CopyFacts({ copy }: { copy: Copy }) {
 
   return (
     <div className="flex min-w-48 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-      <span>{state.label}</span>
-      {state.detail ? <span>{state.detail}</span> : null}
-      {state.badge ? <Badge variant="secondary">{state.badge}</Badge> : null}
+      <CopyMark copy={copy} />
+      {state.detail ? (
+        <span className="text-muted-foreground">{state.detail}</span>
+      ) : null}
       <span className="text-muted-foreground">
         Casa {personName(copy.holder)}
       </span>
@@ -617,6 +619,8 @@ function BulkList({
   busy,
   onToggle,
   onPerform,
+  onPrimary,
+  onInspect,
 }: {
   copies: Array<Copy>
   expanded: Set<string>
@@ -624,6 +628,8 @@ function BulkList({
   busy: string | null
   onToggle: (oracleId: string) => void
   onPerform: (copy: Copy, action: CopyAction) => void
+  onPrimary: (copy: Copy) => void
+  onInspect: (copy: Copy) => void
 }) {
   const groups = groupCopies(copies)
 
@@ -640,21 +646,38 @@ function BulkList({
             className="rounded-xl bg-card px-3 py-2 ring-1 ring-foreground/10"
           >
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <CardThumb url={group.catalog.image_url} />
-              <div className="flex min-w-0 flex-1 basis-52 items-start gap-2">
-                <CardTitle
-                  namePt={group.catalog.name_pt}
-                  nameEn={group.catalog.name_en}
+              {only ? (
+                <button
+                  type="button"
+                  className="shrink-0"
+                  aria-label={`Ver ${group.catalog.name_pt ?? group.catalog.name_en}`}
+                  onClick={() => {
+                    onInspect(only)
+                  }}
+                >
+                  <CardThumb url={group.catalog.image_url} preview={false} />
+                </button>
+              ) : (
+                <CardThumb url={group.catalog.image_url} />
+              )}
+              <div className="flex min-w-0 flex-1 basis-52 flex-col gap-1">
+                <div className="flex items-start gap-3">
+                  <CardTitle
+                    namePt={group.catalog.name_pt}
+                    nameEn={group.catalog.name_en}
+                  />
+                  <ManaCost
+                    cost={group.catalog.mana_cost}
+                    className="shrink-0"
+                  />
+                </div>
+                <ColorIdentity
+                  colors={group.catalog.color_identity}
+                  name={null}
                 />
-                <ManaCost cost={group.catalog.mana_cost} />
               </div>
               <p className="min-w-36 flex-1 text-sm text-muted-foreground">
-                {[
-                  group.catalog.type_line,
-                  formatColorIdentity(group.catalog.color_identity),
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
+                {group.catalog.type_line}
               </p>
               {only ? (
                 <CopyFacts copy={only} />
@@ -669,6 +692,7 @@ function BulkList({
                   meId={meId}
                   busy={busy}
                   onPerform={onPerform}
+                  onPrimary={onPrimary}
                 />
               ) : (
                 <Button
@@ -693,12 +717,21 @@ function BulkList({
                     key={copy.id}
                     className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2"
                   >
-                    <CopyFacts copy={copy} />
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 text-left"
+                      onClick={() => {
+                        onInspect(copy)
+                      }}
+                    >
+                      <CopyFacts copy={copy} />
+                    </button>
                     <CopyActionButtons
                       copy={copy}
                       meId={meId}
                       busy={busy}
                       onPerform={onPerform}
+                      onPrimary={onPrimary}
                     />
                   </li>
                 ))}
@@ -716,11 +749,15 @@ function BulkGrid({
   meId,
   busy,
   onPerform,
+  onPrimary,
+  onInspect,
 }: {
   copies: Array<Copy>
   meId: string
   busy: string | null
   onPerform: (copy: Copy, action: CopyAction) => void
+  onPrimary: (copy: Copy) => void
+  onInspect: (copy: Copy) => void
 }) {
   return (
     <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
@@ -728,29 +765,58 @@ function BulkGrid({
         const name = copy.catalog.name_pt ?? copy.catalog.name_en
         const legendary = isLegendary(copy.catalog.type_line)
         const state = copyStateText(copy)
-        const where = [state.label, state.detail].filter(Boolean).join(' · ')
+        const dimmed = copy.locked || copy.visibility === 'in_use_elsewhere'
 
         return (
           <li
             key={copy.id}
-            className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10"
+            className="relative flex h-full min-w-0 flex-col rounded-xl bg-card ring-1 ring-foreground/10"
           >
-            <div className="p-2 pb-0">
+            <button
+              type="button"
+              className="absolute inset-0 rounded-xl"
+              aria-label={`Ver ${name}`}
+              onClick={() => {
+                onInspect(copy)
+              }}
+            />
+            <div
+              className={cn(
+                'pointer-events-none relative p-2 pb-0',
+                dimmed && 'opacity-50',
+              )}
+            >
               <CardThumb
                 url={copy.catalog.image_url}
-                alt={name}
+                alt=""
                 preview={false}
                 className="aspect-[488/680] h-auto w-full rounded-[4.5%] object-cover"
               />
             </div>
-            <div className="flex flex-1 flex-col gap-2 p-3 pt-2.5">
-              <div className="flex flex-col gap-0.5">
-                <p className="font-heading text-base leading-snug">{name}</p>
+            <CopyMarkBadge copy={copy} />
+            <div
+              className={cn(
+                'pointer-events-none flex flex-1 flex-col gap-2 p-3 pt-2.5',
+                dimmed && 'opacity-60',
+              )}
+            >
+              <div className="flex flex-col gap-1">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-heading text-base leading-snug">{name}</p>
+                  <ManaCost
+                    cost={copy.catalog.mana_cost}
+                    className="shrink-0"
+                  />
+                </div>
                 {copy.catalog.name_pt ? (
                   <p className="text-sm text-muted-foreground">
                     {copy.catalog.name_en}
                   </p>
                 ) : null}
+                <ColorIdentity
+                  colors={copy.catalog.color_identity}
+                  name={null}
+                />
                 {legendary ? (
                   <p className="text-sm text-amber-800 dark:text-amber-300">
                     Lendária
@@ -759,9 +825,11 @@ function BulkGrid({
               </div>
               <div className="mt-auto flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                  <span>{where}</span>
-                  {state.badge ? (
-                    <Badge variant="secondary">{state.badge}</Badge>
+                  <CopyMark copy={copy} />
+                  {state.detail ? (
+                    <span className="text-muted-foreground">
+                      {state.detail}
+                    </span>
                   ) : null}
                 </div>
                 {copy.visibility === 'in_use_elsewhere' ? null : (
@@ -769,14 +837,17 @@ function BulkGrid({
                     Casa {personName(copy.holder)}
                   </p>
                 )}
-                <CopyActionButtons
-                  copy={copy}
-                  meId={meId}
-                  busy={busy}
-                  stretch
-                  onPerform={onPerform}
-                />
               </div>
+            </div>
+            <div className="relative z-10 px-3 pb-3">
+              <CopyActionButtons
+                copy={copy}
+                meId={meId}
+                busy={busy}
+                stretch
+                onPerform={onPerform}
+                onPrimary={onPrimary}
+              />
             </div>
           </li>
         )
@@ -785,152 +856,97 @@ function BulkGrid({
   )
 }
 
-function ShareDialog({
+function GroupsDialog({
   copy,
   groupId,
   onOpenChange,
-  onShared,
+  onChanged,
 }: {
   copy: Copy | null
   groupId: string
   onOpenChange: (open: boolean) => void
-  onShared: () => Promise<void>
+  onChanged: (next: Copy | null) => Promise<void>
 }) {
   const { data: groups = [] } = useQuery({
     ...groupsQueryOptions(),
     enabled: copy != null,
   })
-  const others = groups.filter((group) => group.id !== groupId)
-  const staysLocked = copy?.visibility === 'in_deck'
-  const [pending, setPending] = useState(false)
+  const [pendingId, setPendingId] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   return (
     <Dialog
       open={copy != null}
       onOpenChange={onOpenChange}
-      title="Compartilhar"
-      description={
-        staysLocked
-          ? 'A carta está num deck e continua travada. O outro grupo passa a vê-la assim.'
-          : 'A carta entra livre no grupo escolhido.'
-      }
+      title="Mudar bulks"
+      description="Inclua a carta num grupo ou tire de um. Ela precisa continuar em pelo menos um. Para apagar de todos, use Remover."
     >
-      {others.length === 0 ? (
+      {groups.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Você não está em outro grupo.
+          Você não está em um grupo.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {others.map((group) => (
-            <li key={group.id}>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full justify-start"
-                disabled={pending}
-                onClick={() => {
-                  if (!copy) {
-                    return
+          {groups.map((group) => {
+            const linked = copy?.group_ids.includes(group.id) ?? false
+
+            return (
+              <li
+                key={group.id}
+                className="flex items-center justify-between gap-3"
+              >
+                <span className="min-w-0 truncate text-sm">
+                  {group.name}
+                  {group.id === groupId ? ' · este bulk' : ''}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={
+                    pendingId != null ||
+                    !copy ||
+                    (linked && copy.state !== 'available')
                   }
+                  title={
+                    linked && copy != null && copy.state !== 'available'
+                      ? 'Devolva ao bulk antes de tirar o vínculo.'
+                      : undefined
+                  }
+                  onClick={() => {
+                    if (!copy) {
+                      return
+                    }
 
-                  setPending(true)
-                  void shareCopy(copy.id, group.id)
-                    .then(() => onShared())
-                    .catch((error: unknown) =>
-                      reportBoardError(queryClient, error),
-                    )
-                    .finally(() => {
-                      setPending(false)
-                    })
-                }}
-              >
-                {group.name}
-              </Button>
-            </li>
-          ))}
+                    const copyId = copy.id
+                    setPendingId(group.id)
+                    const action = linked
+                      ? unlinkCopy(copyId, group.id)
+                      : shareCopy(copyId, group.id)
+
+                    void action
+                      .then(async (updated) => {
+                        if (!updated.group_ids.includes(groupId)) {
+                          await onChanged(null)
+                          return
+                        }
+
+                        await onChanged(updated)
+                      })
+                      .catch((error: unknown) => {
+                        reportBoardError(queryClient, error)
+                      })
+                      .finally(() => {
+                        setPendingId(null)
+                      })
+                  }}
+                >
+                  {linked ? 'Tirar' : 'Incluir'}
+                </Button>
+              </li>
+            )
+          })}
         </ul>
       )}
     </Dialog>
   )
-}
-
-function MoveDialog({
-  copy,
-  onOpenChange,
-  onMove,
-  pending,
-}: {
-  copy: Copy | null
-  onOpenChange: (open: boolean) => void
-  onMove: (deckId: string) => void
-  pending: boolean
-}) {
-  const groups = useQuery({
-    ...groupsQueryOptions(),
-    enabled: copy != null,
-  })
-  const deckQueries = useSuspenseSafeDecks(groups.data ?? [], copy != null)
-  const options = deckQueries.filter((deck) => deck.id !== copy?.deck?.id)
-
-  return (
-    <Dialog
-      open={copy != null}
-      onOpenChange={onOpenChange}
-      title="Mover carta"
-      description="Se esta carta é comandante, ela volta ao destino como carta comum. Marque comandante de novo se quiser."
-    >
-      {options.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          Você não tem outro deck.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {options.map((deck) => (
-            <li key={deck.id}>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full justify-start"
-                disabled={pending}
-                onClick={() => {
-                  onMove(deck.id)
-                }}
-              >
-                {deck.groupName} · {deck.name}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Dialog>
-  )
-}
-
-function useSuspenseSafeDecks(
-  groups: Array<{ id: string; name: string }>,
-  enabled: boolean,
-) {
-  const queries = useQuery({
-    queryKey: [
-      'move-decks',
-      groups.map((group) => group.id).join('|'),
-      enabled,
-    ],
-    enabled: enabled && groups.length > 0,
-    queryFn: async () => {
-      const lists = await Promise.all(
-        groups.map(async (group) => {
-          const decks = await listDecks(group.id)
-          return decks.map((deck) => ({
-            ...deck,
-            groupName: group.name,
-          }))
-        }),
-      )
-      return lists.flat()
-    },
-  })
-
-  return queries.data ?? []
 }

@@ -15,11 +15,13 @@ export type CopyAction =
   | 'return'
   | 'lock'
   | 'unlock'
+  | 'groups'
 
 export const copyActionLabel: Record<CopyAction, string> = {
-  take: 'Pegar na hora',
+  take: 'Selecionar',
   share: 'Compartilhar',
   remove: 'Remover',
+  groups: 'Mudar bulks',
   request: 'Solicitar',
   cancel: 'Cancelar',
   refresh: 'Atualizar preço',
@@ -52,66 +54,58 @@ function withRefresh(
   return { buttons, menu: [...menu, 'refresh'] }
 }
 
-export function planBulkActions(copy: Copy, meId: string): CopyActionPlan {
-  if (copy.visibility === 'in_use_elsewhere') {
-    return { buttons: [], menu: [] }
+export type BulkPrimary = 'select' | 'request' | 'unavailable'
+
+export function bulkPrimary(copy: Copy, meId: string): BulkPrimary {
+  if (copy.locked || copy.visibility === 'in_use_elsewhere') {
+    return 'unavailable'
   }
 
+  if (copy.visibility === 'in_deck' && copy.deck?.owner.id !== meId) {
+    return 'request'
+  }
+
+  return 'select'
+}
+
+export function bulkPrimaryLabel(primary: BulkPrimary) {
+  if (primary === 'request') {
+    return 'Solicitar'
+  }
+
+  if (primary === 'select') {
+    return 'Selecionar'
+  }
+
+  return 'Indisponível'
+}
+
+export function planBulkMenu(copy: Copy, meId: string): Array<CopyAction> {
   const mine = copy.holder.id === meId
   const addedByMe = copy.added_by.id === meId
-  const otherLockedDeck =
-    copy.visibility === 'in_deck' &&
-    copy.deck != null &&
-    copy.deck.owner.id !== meId &&
-    copy.locked
-  const canRefresh =
-    (mine || addedByMe) && !copy.catalog.is_basic && !otherLockedDeck
+  const menu: Array<CopyAction> = []
 
-  if (otherLockedDeck) {
-    return { buttons: [], menu: [] }
+  if (mine && copy.state !== 'reserved') {
+    menu.push('groups')
   }
 
-  if (copy.visibility === 'reserved') {
-    const buttons: Array<CopyAction> =
-      copy.open_request?.requester.id === meId ? ['cancel'] : []
-    return withRefresh(buttons, [], canRefresh)
+  if (mine && copy.visibility === 'available') {
+    menu.push('remove')
   }
 
-  if (copy.visibility === 'available' && mine) {
-    return withRefresh(['take'], ['share', 'remove'], canRefresh)
+  if (copy.open_request?.requester.id === meId) {
+    menu.push('cancel')
   }
 
-  if (copy.visibility === 'available') {
-    return withRefresh(['request'], [], canRefresh)
+  if (
+    (mine || addedByMe) &&
+    !copy.catalog.is_basic &&
+    copy.visibility !== 'in_use_elsewhere'
+  ) {
+    menu.push('refresh')
   }
 
-  if (copy.deck && copy.deck.owner.id !== meId) {
-    if (!copy.locked) {
-      return withRefresh(['request'], [], canRefresh)
-    }
-
-    return { buttons: [], menu: [] }
-  }
-
-  if (copy.deck?.owner.id === meId) {
-    const incoming =
-      copy.open_request?.status === 'pending_acceptance' &&
-      copy.open_request.requester.id !== meId
-
-    if (incoming) {
-      return withRefresh(['accept', 'reject'], [], canRefresh)
-    }
-
-    if (!copy.open_request) {
-      return withRefresh(
-        [copy.locked ? 'unlock' : 'lock'],
-        ['move', 'return', 'share'],
-        canRefresh,
-      )
-    }
-  }
-
-  return withRefresh([], [], canRefresh)
+  return menu
 }
 
 export function planDeckActions(
@@ -153,17 +147,26 @@ export function copyStateText(copy: Copy) {
   }
 
   if (copy.visibility === 'reserved') {
-    return { label: 'Reservada', badge: null, detail: null }
+    return {
+      label: 'Indisponível',
+      badge: null,
+      detail: 'Pedido em análise',
+    }
   }
 
   if (copy.visibility === 'in_use_elsewhere') {
-    return { label: 'Em uso em outro grupo', badge: null, detail: null }
+    return {
+      label: 'Indisponível',
+      badge: null,
+      detail: 'Em uso em outro grupo',
+    }
   }
 
-  const owner = copy.deck?.owner
   return {
-    label: owner ? `No deck de ${personName(owner)}` : 'No deck',
-    badge: copy.locked ? 'Travada' : 'Destravada',
-    detail: copy.deck?.name ?? null,
+    label: copy.locked ? 'Travada' : 'Reservada',
+    badge: null,
+    detail: copy.deck
+      ? `No deck de ${personName(copy.deck.owner)} · ${copy.deck.name}`
+      : 'No deck',
   }
 }

@@ -58,11 +58,7 @@ import { invalidateBoard, reportBoardError } from '@/lib/api/invalidate'
 import { acceptRequest, rejectRequest } from '@/lib/api/requests'
 import { copyActionLabel, planDeckActions } from '@/lib/copy-actions'
 import type { CopyAction } from '@/lib/copy-actions'
-import {
-  deckFormatLabel,
-  deckFormats,
-  formatColorIdentity,
-} from '@/lib/display'
+import { deckFormatLabel, deckFormats } from '@/lib/display'
 import { formatCents, formatCopyPrice } from '@/lib/money'
 
 const countCodes = ['deck_over_100', 'deck_under_100']
@@ -457,10 +453,13 @@ function CardBlock({
                       />
                       <ManaCost cost={card.catalog.mana_cost} />
                     </div>
+                    <ColorIdentity
+                      colors={card.catalog.color_identity}
+                      name={null}
+                    />
                     <p className="text-sm text-muted-foreground">
                       {[
                         card.catalog.type_line,
-                        formatColorIdentity(card.catalog.color_identity),
                         `Casa ${personName(card.holder)}`,
                         formatCopyPrice(
                           card.price_cents,
@@ -683,7 +682,7 @@ function AddDeckCardDialog({
         onOpenChange(next)
       }}
       title="Adicionar ao deck"
-      description="Se você já tem a carta livre no bulk, ela é travada neste deck. Se não, é cadastrada já aqui, travada, na sua casa."
+      description="Se você já tem a carta livre no bulk, ela entra neste deck. Se não, é cadastrada já aqui, na sua casa. Ela não fica travada."
     >
       {card ? (
         <form
@@ -769,7 +768,7 @@ function ShareFromDeckDialog({
       open={copyId != null}
       onOpenChange={onOpenChange}
       title="Compartilhar"
-      description="A carta está num deck e continua travada. O outro grupo passa a vê-la assim."
+      description="O outro grupo passa a ver a carta no estado em que ela está."
     >
       {others.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -826,30 +825,14 @@ function DeckMoveDialog({
   onOpenChange: (open: boolean) => void
   onMove: (targetDeckId: string) => void
 }) {
-  const groups = useQuery({
-    ...groupsQueryOptions(),
-    enabled: open,
-  })
   const destinations = useQuery({
-    queryKey: [
-      'deck-move-targets',
-      sourceDeckId,
-      (groups.data ?? []).map((group) => group.id).join('|'),
-    ],
-    enabled: open && groups.isSuccess,
+    queryKey: ['deck-move-targets', sourceDeckId],
+    enabled: open,
     queryFn: async () => {
-      const lists = await Promise.all(
-        (groups.data ?? []).map(async (group) => {
-          const decks = await listDecks(group.id)
-          return decks
-            .filter((deck) => deck.id !== sourceDeckId)
-            .map((deck) => ({
-              id: deck.id,
-              label: `${group.name} · ${deck.name}`,
-            }))
-        }),
-      )
-      return lists.flat()
+      const decks = await listDecks()
+      return decks
+        .filter((deck) => deck.id !== sourceDeckId)
+        .map((deck) => ({ id: deck.id, label: deck.name }))
     },
   })
 

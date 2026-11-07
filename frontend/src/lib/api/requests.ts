@@ -14,14 +14,20 @@ const targetDeckSchema = z.object({
   name: z.string(),
 })
 
+const requestStatusSchema = z.enum(['pending_acceptance', 'awaiting_handoff'])
+
 export const handoffSchema = z.object({
   to_bring: z.array(
     z.object({
       id: z.string(),
       source: z.enum(['bulk', 'deck']),
       catalog: catalogNameSchema,
+      status: requestStatusSchema,
       requester: personSchema,
+      holder: personSchema,
       target_deck: targetDeckSchema,
+      requester_confirmed: z.boolean(),
+      holder_confirmed: z.boolean(),
     }),
   ),
   to_receive: z.array(
@@ -29,9 +35,11 @@ export const handoffSchema = z.object({
       id: z.string(),
       source: z.enum(['bulk', 'deck']),
       catalog: catalogNameSchema,
-      status: z.enum(['pending_acceptance', 'awaiting_handoff']),
+      status: requestStatusSchema,
       holder: personSchema,
       target_deck: targetDeckSchema,
+      requester_confirmed: z.boolean(),
+      holder_confirmed: z.boolean(),
     }),
   ),
 })
@@ -49,11 +57,20 @@ export async function listHandoffs(groupId: string, signal?: AbortSignal) {
   return apiRequest(`/groups/${groupId}/handoffs`, handoffSchema, { signal })
 }
 
-export async function requestCopy(deckId: string, cardCopyId: string) {
+export async function requestCopy(
+  deckId: string,
+  cardCopyId: string,
+  groupId?: string,
+  asCommander = false,
+) {
   return apiRequest(`/decks/${deckId}/requests`, z.unknown(), {
     method: 'POST',
     conflict: 'request',
-    body: JSON.stringify({ card_copy_id: cardCopyId }),
+    body: JSON.stringify({
+      card_copy_id: cardCopyId,
+      ...(groupId ? { group_id: groupId } : {}),
+      as_commander: asCommander,
+    }),
   })
 }
 

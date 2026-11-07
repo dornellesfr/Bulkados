@@ -21,12 +21,10 @@ import { deckFormats } from '@/lib/display'
 export function CreateDeckDialog({
   open,
   onOpenChange,
-  groupId,
   onCreated,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  groupId: string
   onCreated?: (deck: DeckSummary) => void
 }) {
   const queryClient = useQueryClient()
@@ -38,7 +36,7 @@ export function CreateDeckDialog({
     },
   })
   const mutation = useMutation({
-    mutationFn: (values: CreateDeckInput) => createDeck(groupId, values),
+    mutationFn: (values: CreateDeckInput) => createDeck(values),
     onSuccess: async (deck) => {
       await invalidateBoard(queryClient)
       form.reset({ name: '', format: 'commander_10' })

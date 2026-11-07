@@ -13,9 +13,11 @@ function symbolUrl(symbol: string) {
 export function ManaCost({
   cost,
   className,
+  symbolClassName,
 }: {
   cost: string | null
   className?: string
+  symbolClassName?: string
 }) {
   if (!cost) {
     return null
@@ -42,7 +44,7 @@ export function ManaCost({
                 key={`${symbol}-${index}`}
                 src={symbolUrl(symbol)}
                 alt={symbol}
-                className="size-4"
+                className={cn('size-4', symbolClassName)}
               />
             ))}
           </span>

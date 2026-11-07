@@ -13,10 +13,7 @@ export const personSchema = z.object({
   last_name: z.string(),
 })
 
-export function personName(person: {
-  first_name: string
-  last_name: string
-}) {
+export function personName(person: { first_name: string; last_name: string }) {
   return `${person.first_name} ${person.last_name}`
 }
 
@@ -51,14 +48,16 @@ export const copyCatalogSchema = z.object({
   image_url: z.string().nullable(),
   mana_cost: z.string().nullable(),
   type_line: z.string().nullable(),
+  oracle_text: z.string(),
   color_identity: z.array(z.string()),
   is_basic: z.boolean(),
+  keywords: z.array(z.string()),
+  can_be_commander: z.boolean(),
+  partner_kind: partnerKindSchema.nullable(),
 })
 
 export const deckCatalogSchema = copyCatalogSchema.extend({
   commander_legal: z.enum(['legal', 'banned', 'not_legal']),
-  can_be_commander: z.boolean(),
-  partner_kind: partnerKindSchema.nullable(),
 })
 
 export const emailSchema = z.email('Informe um e-mail válido.')

@@ -26,7 +26,7 @@ function commandersText(commanders: DeckSummary['commanders']) {
 }
 
 export function DecksPage({ groupId }: { groupId: string }) {
-  const { data: decks } = useSuspenseQuery(decksQueryOptions(groupId))
+  const { data: decks } = useSuspenseQuery(decksQueryOptions())
   const [createOpen, setCreateOpen] = useState(false)
 
   return (
@@ -46,7 +46,7 @@ export function DecksPage({ groupId }: { groupId: string }) {
       />
       {decks.length === 0 ? (
         <div className="flex flex-col items-start gap-3">
-          <p>Você ainda não tem um deck neste grupo.</p>
+          <p>Você ainda não tem nenhum deck.</p>
           <Button
             type="button"
             onClick={() => {
@@ -90,11 +90,7 @@ export function DecksPage({ groupId }: { groupId: string }) {
           ))}
         </ul>
       )}
-      <CreateDeckDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        groupId={groupId}
-      />
+      <CreateDeckDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   )
 }

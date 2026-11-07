@@ -126,7 +126,7 @@ export function RegisterCopyDialog({
     enabled: open,
   })
   const decks = useQuery({
-    ...decksQueryOptions(groupId),
+    ...decksQueryOptions(),
     enabled: open,
   })
   const myDecks = decks.data ?? []
@@ -246,7 +246,7 @@ export function RegisterCopyDialog({
         onOpenChange(next)
       }}
       title="Cadastrar carta"
-      description="Livre, qualquer um pode solicitar. Num deck seu, ela já entra travada com você."
+      description="Livre no bulk, qualquer um pode solicitar e você decide se aceita. Num deck seu, ela entra na hora e não fica travada."
     >
       {card ? (
         <form
@@ -322,10 +322,10 @@ export function RegisterCopyDialog({
                   </NativeSelect>
                   <FieldDescription>
                     {field.value
-                      ? 'Entra travada nesse deck, na sua casa. Se você já tem essa carta livre no bulk, essa cópia é a que entra.'
+                      ? 'Entra nesse deck, na sua casa, sem travar. Se você já tem essa carta livre no bulk, essa cópia é a que entra.'
                       : myDecks.length === 0 && decks.isSuccess
-                        ? 'Qualquer pessoa do grupo pode solicitar. Crie um deck neste grupo para ela já entrar com você.'
-                        : 'Qualquer pessoa do grupo pode solicitar.'}
+                        ? 'Qualquer pessoa do grupo pode solicitar, e você decide se aceita. Crie um deck para ela já entrar com você.'
+                        : 'Qualquer pessoa do grupo pode solicitar, e você decide se aceita.'}
                   </FieldDescription>
                 </Field>
               )}
