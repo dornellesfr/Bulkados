@@ -143,3 +143,19 @@ body,
 body {
   margin: 0;
 }
+
+/* Sonner's toaster is turned into a popover so it lives in the browser's top
+   layer, above native <dialog> modals. These rules undo the popover defaults
+   on the wrapper that Sonner renders around the toasts. */
+section[popover][aria-live='polite'] {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+  pointer-events: none;
+}
+
+section[popover][aria-live='polite'] [data-sonner-toast] {
+  pointer-events: auto;
+}

@@ -18,6 +18,11 @@ class CardRequest(CreatedAtMixin, Base):
             unique=True,
             postgresql_where=text("status IN ('pending_acceptance', 'awaiting_handoff')"),
         ),
+        Index("ix_requests_group_id_status_holder_id", "group_id", "status", "holder_id"),
+        Index("ix_requests_group_id_status_requester_id", "group_id", "status", "requester_id"),
+        Index("ix_requests_card_copy_id", "card_copy_id"),
+        Index("ix_requests_target_deck_id", "target_deck_id"),
+        Index("ix_requests_source_deck_id", "source_deck_id"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -30,19 +35,16 @@ class CardRequest(CreatedAtMixin, Base):
         Uuid(as_uuid=True),
         ForeignKey("groups.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     requester_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id"),
         nullable=False,
-        index=True,
     )
     holder_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id"),
         nullable=False,
-        index=True,
     )
     source: Mapped[RequestSource] = mapped_column(
         str_enum(RequestSource, "request_source"),

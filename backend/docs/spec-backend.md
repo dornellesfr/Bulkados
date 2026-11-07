@@ -25,7 +25,7 @@ Cadastro:
 
 Login: o corpo leva `email` e `password`. A resposta de erro é a mesma para e-mail inexistente e senha errada, e não devolve o e-mail. A resposta de sucesso devolve os tokens do Supabase.
 
-Rotas protegidas exigem `Authorization: Bearer`. O backend valida assinatura, emissor e expiração do JWT e carrega o `users` local. Usuário sem linha local recebe 401.
+Rotas protegidas exigem `Authorization: Bearer`. O backend valida assinatura, emissor e expiração do JWT e carrega o `users` local. Se o token é válido mas a linha local não existe, ela é recriada com o `id`, o e-mail e os nomes do token (`user_metadata`, com o apelido ou o início do e-mail como alternativa). Token sem e-mail não consegue recriar a linha e recebe 401.
 
 Recuperação de senha: o cliente manda o e-mail. O backend só pede o reset ao Supabase se a conta existir, e responde sempre a mesma mensagem.
 
@@ -173,6 +173,14 @@ Cópia nasce `available`.
 
 Corpo: `oracle_id` e `quantity`; o deck vem da URL. Primeiro coloca no deck, sem travar, as cópias `available` dessa carta cuja casa é quem adiciona, da mais antiga para a mais nova. Se faltar, cadastra o resto já no deck. Todas ficam `in_deck`, `locked` falso, com `role` `main`. As cadastradas aqui também vinculam os grupos da casa. Ficam livres de novo se forem devolvidas ao bulk. Recusa com 409 se a identidade de cor da carta não cabe na do deck.
 
+### Editar o deck em bulk
+
+`PUT /decks/{id}/bulk` `{ cards: [{ name, role }] }` substitui a lista inteira do deck por nomes. `role` é `commander` ou `main` e `name` é comparado com `name_en` e `name_pt`, sem acento e sem diferenciar maiúsculas.
+
+Todos os nomes são resolvidos antes de qualquer escrita. Se um nome não existir, responde 422 listando os nomes e o deck fica intacto. A lista pode repetir nomes, criando uma cópia por linha. Cópias que continuam no deck são reaproveitadas; as que saíram voltam ao bulk; as novas usam primeiro as cópias `available` da casa e o restante é cadastrado já no deck.
+
+A validação dos comandantes é a mesma de `POST /decks/{id}/commanders`, incluindo a identidade de cor das outras cartas. Cópia com pedido aberto não pode sair do deck e a resposta é 409. A resposta é o detalhe do deck (`GET /decks/{id}`).
+
 ### Compartilhar com outro grupo
 
 Cópia `available`, casa igual ao usuário, grupo destino em que ele é membro e a cópia ainda não está. Cria o vínculo. Cópia reservada não ganha vínculo. Cópia em deck pode ganhar o vínculo e continua no mesmo estado de trava.
@@ -317,12 +325,13 @@ Cartas:
 Decks:
 
 - `POST /decks` `{ name, format }` cria um deck da pessoa
-- `GET /decks` lista os decks da pessoa, em qualquer bulk
+- `GET /decks` lista os decks da pessoa, em qualquer bulk, com a contagem de cartas
 - `POST /groups/{id}/decks` e `GET /groups/{id}/decks` continuam valendo por compatibilidade, mas operam nos decks globais da pessoa
 - `GET /decks/{id}` cartas, comandantes, contagens, preços e avisos
 - `PATCH /decks/{id}` nome ou formato
 - `DELETE /decks/{id}` devolve as cartas ao bulk, livres, na casa atual
 - `POST /decks/{id}/commanders` `{ card_copy_ids }` substitui o conjunto de comandantes; 409 se a escolha não é válida
+- `PUT /decks/{id}/bulk` `{ cards: [{ name, role }] }` substitui a lista pelos nomes; 422 lista nomes desconhecidos e não altera nada
 - `POST /decks/{id}/take` `{ card_copy_id, as_commander }` selecionar o que já está na sua casa, sem travar. `as_commander` entra na cadeira de comandante
 - `POST /decks/{id}/copies` cadastra direto no deck
 - `POST /decks/{id}/cards/{card_copy_id}/move` `{ target_deck_id, as_commander }`
@@ -346,7 +355,7 @@ Pedidos:
 É o formato que o frontend valida (`frontend/src/lib/api`). Os testes de `tests/integration/test_contract.py` travam as chaves; mudar um lado sem o outro quebra a tela.
 
 - Cópia (`POST` e `GET /groups/{id}/copies`, `refresh-price`, `take`, `move`, `return`, `lock`, `unlock`, incluir e tirar grupo): `id`, `catalog` (`oracle_id`, `name_en`, `name_pt`, `image_url`, `mana_cost`, `type_line`, `oracle_text`, `color_identity`, `is_basic`, `keywords`, `can_be_commander`, `partner_kind`), `holder` e `added_by` (`id`, `email`, `first_name`, `last_name`), `price_cents`, `price_fetched_at`, `state`, `locked`, `visibility`, `deck` (`id`, `name`, `owner`) ou nulo, `open_request` (`id`, `status`, `source`, `requester`) ou nulo, `group_ids`.
-- Deck (`GET` e `PATCH /decks/{id}`): `id`, `name`, `format`, `owner_id`, `color_identity`, `color_identity_name`, `card_count`, `main_price_cents`, `commander_price_cents`, `warnings` e `cards`. Cada carta traz `card_copy_id`, `role`, `locked`, `price_cents`, `holder`, `catalog` (os campos da cópia mais `commander_legal`), `open_request` e `can_toggle_commander`. O resumo do deck (`GET /decks` e o alias por grupo) traz `color_identity`, `color_identity_name` e `commanders` (cada um com `name_en`, `name_pt`, `image_url`, `can_be_commander`, `partner_kind`, `type_line`, `oracle_text` e `keywords`).
+- Deck (`GET` e `PATCH /decks/{id}`): `id`, `name`, `format`, `owner_id`, `color_identity`, `color_identity_name`, `card_count`, `main_price_cents`, `commander_price_cents`, `warnings` e `cards`. Cada carta traz `card_copy_id`, `role`, `locked`, `price_cents`, `holder`, `catalog` (os campos da cópia mais `commander_legal`), `open_request` e `can_toggle_commander`. O resumo do deck (`GET /decks` e o alias por grupo) traz `color_identity`, `color_identity_name`, `card_count` e `commanders` (cada um com `name_en`, `name_pt`, `image_url`, `can_be_commander`, `partner_kind`, `type_line`, `oracle_text` e `keywords`).
 - Pedido: `id`, `card_copy_id`, `group_id`, `requester_id`, `requester_email`, `requester_first_name`, `requester_last_name`, `holder_id`, `holder_email`, `holder_first_name`, `holder_last_name`, `source`, `source_deck_id`, `target_deck_id`, `target_deck_name`, `as_commander`, `status`, `requester_confirmed`, `holder_confirmed`, `name_en`, `name_pt`, `created_at`, `resolved_at`.
 - Encontros: `to_bring` com `id`, `source`, `catalog` (`name_en`, `name_pt`), `status`, `requester`, `holder`, `target_deck` (`id`, `name`), `requester_confirmed` e `holder_confirmed`; `to_receive` com `id`, `source`, `catalog`, `status`, `holder`, `target_deck`, `requester_confirmed` e `holder_confirmed`.
 

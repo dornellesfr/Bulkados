@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { XIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { TOASTER_RAISE_EVENT } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
 
 export function Dialog({
@@ -32,6 +33,7 @@ export function Dialog({
 
     if (open && !dialog.open) {
       dialog.showModal()
+      document.dispatchEvent(new Event(TOASTER_RAISE_EVENT))
     } else if (!open && dialog.open) {
       dialog.close()
     }

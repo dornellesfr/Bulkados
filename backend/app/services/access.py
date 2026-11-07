@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError
@@ -31,8 +31,16 @@ async def accepted_group_ids(session: AsyncSession, user_id: UUID) -> list[UUID]
 
 
 async def require_accepted_group(session: AsyncSession, group_id: UUID, user_id: UUID) -> Group:
-    group = await session.get(Group, group_id)
-    if group is None or not await is_accepted(session, group_id, user_id):
+    group = await session.scalar(
+        select(Group)
+        .join(GroupMember, GroupMember.group_id == Group.id)
+        .where(
+            Group.id == group_id,
+            GroupMember.user_id == user_id,
+            GroupMember.status == MembershipStatus.accepted,
+        )
+    )
+    if group is None:
         raise DomainError(404, "Não encontramos esse grupo.")
     return group
 
@@ -75,8 +83,25 @@ async def group_ids_by_user(
 
 
 async def require_deck_reader(session: AsyncSession, deck_id: UUID, user_id: UUID) -> Deck:
-    deck = await session.get(Deck, deck_id)
-    if deck is None or not await shares_group(session, deck.owner_id, user_id):
+    viewer_groups = select(GroupMember.group_id).where(
+        GroupMember.user_id == user_id,
+        GroupMember.status == MembershipStatus.accepted,
+    )
+    deck = await session.scalar(
+        select(Deck).where(
+            Deck.id == deck_id,
+            or_(
+                Deck.owner_id == user_id,
+                Deck.owner_id.in_(
+                    select(GroupMember.user_id).where(
+                        GroupMember.status == MembershipStatus.accepted,
+                        GroupMember.group_id.in_(viewer_groups),
+                    )
+                ),
+            ),
+        )
+    )
+    if deck is None:
         raise DomainError(404, "Não encontramos esse deck.")
     return deck
 

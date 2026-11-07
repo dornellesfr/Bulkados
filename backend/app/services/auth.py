@@ -1,14 +1,18 @@
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.core.errors import (
     AuthProviderUnavailableError,
     DomainError,
     InvalidCredentialsError,
     RegistrationRejectedError,
 )
-from app.domain.identity import USER_LEVEL
+from app.core.security import AccessTokenClaims
+from app.domain.identity import ADMIN_LEVEL, USER_LEVEL, normalize_email
 from app.integrations.auth import AuthProvider, AuthSession
 from app.models.user import User
 from app.schemas.auth import (
@@ -34,6 +38,68 @@ FORGOT_MESSAGE = "Se existir uma conta com esse e-mail, enviamos as instruções
 CURRENT_PASSWORD_WRONG = "A senha atual não confere."
 PASSWORD_UNCHANGED = "A nova senha precisa ser diferente da atual."
 PASSWORD_REJECTED = "Não foi possível salvar essa senha. Use pelo menos 6 caracteres."
+
+logger = logging.getLogger(__name__)
+
+
+async def ensure_local_user(
+    session: AsyncSession,
+    claims: AccessTokenClaims,
+    settings: Settings,
+) -> User | None:
+    """Recria a linha local de um usuário que já existe no provedor de auth."""
+    if claims.email is None:
+        return None
+    try:
+        email = normalize_email(claims.email)
+    except ValueError:
+        return None
+
+    first_name, last_name = _recovered_names(claims, email)
+    user: User | None = User(
+        id=claims.user_id,
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        level=_recovered_level(email, settings),
+    )
+    try:
+        async with session.begin_nested():
+            session.add(user)
+            await session.flush()
+    except IntegrityError:
+        user = await session.get(User, claims.user_id)
+        if user is None or user.email != email:
+            return None
+    logger.info("auth: usuário local recriado a partir do token: %s", email)
+    return user
+
+
+def _recovered_names(claims: AccessTokenClaims, email: str) -> tuple[str, str]:
+    first_name = (
+        _text_claim(claims.user_metadata.get("first_name"))
+        or _text_claim(claims.user_metadata.get("nick"))
+        or email.split("@", 1)[0]
+    )
+    last_name = _text_claim(claims.user_metadata.get("last_name")) or "Conta"
+    return first_name[:80], last_name[:80]
+
+
+def _text_claim(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _recovered_level(email: str, settings: Settings) -> int:
+    if settings.admin_email:
+        try:
+            if normalize_email(settings.admin_email) == email:
+                return ADMIN_LEVEL
+        except ValueError:
+            return USER_LEVEL
+    return USER_LEVEL
 
 
 async def create_user(

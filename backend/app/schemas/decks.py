@@ -34,6 +34,19 @@ class CommandersUpdate(BaseModel):
     card_copy_ids: list[UUID]
 
 
+class DeckBulkCard(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=512)
+    role: DeckRole = DeckRole.main
+
+
+class DeckBulkUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cards: list[DeckBulkCard] = Field(max_length=1000)
+
+
 class TakeCard(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -70,6 +83,7 @@ class DeckSummary(BaseModel):
     created_at: datetime
     color_identity: list[str] | None
     color_identity_name: str | None
+    card_count: int
     commanders: list[DeckCommanderRef]
 
 

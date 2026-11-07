@@ -283,7 +283,7 @@ async def test_take_can_seat_a_card_as_commander(client: AsyncClient) -> None:
         colors=["R"],
         partner=PartnerKind.partner,
     )
-    plain = await insert_card("Sol Ring")
+    solo = await insert_card("Solo", type_line=LEGENDARY, commander=True)
     [green_copy] = await register_copies(client, group, ada, green)
     seated = await client.post(
         f"/api/v1/decks/{deck['id']}/take",
@@ -310,10 +310,10 @@ async def test_take_can_seat_a_card_as_commander(client: AsyncClient) -> None:
     assert refused.status_code == 409
     assert paired.status_code == 200, paired.text
 
-    [plain_copy] = await register_copies(client, group, ada, plain)
+    [solo_copy] = await register_copies(client, group, ada, solo)
     third = await client.post(
         f"/api/v1/decks/{deck['id']}/take",
-        json={"card_copy_id": plain_copy["id"], "as_commander": True},
+        json={"card_copy_id": solo_copy["id"], "as_commander": True},
         headers=headers,
     )
     assert third.status_code == 409

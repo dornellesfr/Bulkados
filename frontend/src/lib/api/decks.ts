@@ -46,6 +46,7 @@ export const deckSummarySchema = z.object({
   format: deckFormatSchema,
   color_identity: z.array(z.string()).nullable(),
   color_identity_name: z.string().nullable(),
+  card_count: z.number().int(),
   commanders: z.array(deckCommanderSchema),
 })
 
@@ -78,12 +79,23 @@ export const deckCopiesInputSchema = z.object({
   quantity: quantitySchema,
 })
 
+export const deckBulkCardSchema = z.object({
+  name: z.string().trim().min(1),
+  role: z.enum(['commander', 'main']),
+})
+
+export const deckBulkInputSchema = z.object({
+  cards: z.array(deckBulkCardSchema).max(1000),
+})
+
 export type DeckWarning = z.infer<typeof deckWarningSchema>
 export type DeckCard = z.infer<typeof deckCardSchema>
 export type DeckSummary = z.infer<typeof deckSummarySchema>
 export type DeckDetail = z.infer<typeof deckDetailSchema>
 export type CreateDeckInput = z.infer<typeof createDeckInputSchema>
 export type UpdateDeckInput = z.infer<typeof updateDeckInputSchema>
+export type DeckBulkCard = z.infer<typeof deckBulkCardSchema>
+export type DeckBulkInput = z.infer<typeof deckBulkInputSchema>
 
 export const deckKeys = {
   all: ['decks'] as const,
@@ -153,6 +165,14 @@ export async function addDeckCopies(
   const payload = deckCopiesInputSchema.parse(input)
   return apiRequest(`/decks/${deckId}/copies`, z.unknown(), {
     method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function replaceDeckCards(deckId: string, input: DeckBulkInput) {
+  const payload = deckBulkInputSchema.parse(input)
+  return apiRequest(`/decks/${deckId}/bulk`, deckDetailSchema, {
+    method: 'PUT',
     body: JSON.stringify(payload),
   })
 }

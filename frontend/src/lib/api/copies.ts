@@ -62,7 +62,6 @@ export const bulkSearchSchema = z.object({
   cores: z.union([z.string(), z.array(z.string())]).optional(),
   cmc: manaBucketSchema.optional(),
   destino: z.string().optional(),
-  vista: bulkViewSchema.optional(),
 })
 
 export const createCopiesInputSchema = z.object({
@@ -85,7 +84,6 @@ export type BulkSearch = {
   cores?: Array<ColorCode>
   cmc?: ManaBucket
   destino?: string
-  vista?: BulkView
 }
 
 export function parseBulkSearch(search: Record<string, unknown>): BulkSearch {
@@ -115,10 +113,6 @@ export function parseBulkSearch(search: Record<string, unknown>): BulkSearch {
 
   if (parsed.destino) {
     next.destino = parsed.destino
-  }
-
-  if (parsed.vista === 'lista') {
-    next.vista = 'lista'
   }
 
   return next
@@ -175,7 +169,7 @@ export function filterCopies(copies: Array<Copy>, search: BulkSearch) {
           ? ['C']
           : copy.catalog.color_identity
 
-      if (!identity.some((color) => colors.includes(color as ColorCode))) {
+      if (!colors.every((color) => identity.includes(color))) {
         return false
       }
     }

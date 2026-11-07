@@ -56,7 +56,7 @@ Protegidas, atrás de um layout sem path (`src/routes/_app.tsx`). Sem sessão, `
 
 Não existe `GET /groups/{id}`. O layout do grupo lê o nome em `GET /groups`. Id ausente nessa lista, ou 404 da API, vira a página de não encontrado. O texto é "Esse grupo não está disponível." Não diz se a pessoa está fora do grupo: a API esconde o recurso de quem não é membro `accepted`.
 
-Dentro do grupo, a navegação é Bulk, Decks, Encontro, Membros. Encontro carrega `GET /groups/{id}/handoffs` no layout e mostra a soma de `to_bring` e `to_receive` quando for maior que zero.
+Dentro do grupo, a navegação é Bulk, Decks, Encontro, Membros. Encontro carrega `GET /groups/{id}/handoffs` no layout e mostra a soma de `to_bring` e `to_receive` quando for maior que zero. A página de um deck é a exceção: ela não mostra o nome do grupo nem essa navegação.
 
 Cabeçalho logado: menu (Grupos, Perfil, Sair), nome do app `bulkados` com link para `/`, tema. O link de publicações sai.
 
@@ -158,7 +158,7 @@ Resposta: a lista das cópias criadas. Falha de preço não falha o cadastro; `p
 
 `POST /decks` `{ name, format }` cria um deck da pessoa. O deck não pertence a um grupo e pode receber cartas de vários bulks. `format` é `commander_10`, `commander_100`, `commander_200`, `commander_500` ou `competitive`.
 
-`GET /decks` lista os decks de quem está logado, em qualquer bulk: `id`, `name`, `format`, `created_at`, `color_identity`, `color_identity_name`, `commanders`. A contagem fica no detalhe. `POST /groups/{id}/decks` e `GET /groups/{id}/decks` continuam valendo por compatibilidade e devolvem os mesmos decks globais da pessoa.
+`GET /decks` lista os decks de quem está logado, em qualquer bulk: `id`, `name`, `format`, `created_at`, `color_identity`, `color_identity_name`, `card_count`, `commanders`. `POST /groups/{id}/decks` e `GET /groups/{id}/decks` continuam valendo por compatibilidade e devolvem os mesmos decks globais da pessoa.
 
 `GET /decks/{id}`:
 
@@ -175,6 +175,8 @@ O texto do aviso é o `message` da API. O `code` só escolhe o lugar na tela. A 
 `DELETE /decks/{id}` devolve as cartas ao bulk. A tela pede confirmação antes.
 
 `POST /decks/{id}/commanders` `{ card_copy_ids }` substitui o conjunto inteiro. Pode ir lista vazia.
+
+`PUT /decks/{id}/bulk` `{ cards: [{ name, role }] }` substitui a lista inteira por nomes. Se algum nome não for reconhecido, responde 422 listando os nomes e não altera o deck. A resposta é o detalhe do deck.
 
 `POST /decks/{id}/take` `{ card_copy_id, as_commander }`. `as_commander` omitido é falso: a carta entra como `main`. Verdadeiro entra como `commander`, com a mesma validação de marcar comandante.
 
@@ -244,7 +246,7 @@ Acima da lista, os convites de `GET /invitations`. Cada um tem o nome do grupo, 
 
 ### Bulk
 
-`GET /groups/{id}/copies`. A URL guarda `q`, `estado` (`available`, `in_deck`, `todas`), `cores` (lista com `W`, `U`, `B`, `R`, `G` e `C`), `cmc` (`0` a `7+`), `destino` e `vista` (`lista`; o padrão `cartas` fica de fora da URL). Sem `estado`, o filtro começa em Livre (`available`) e mostra só o que está livre. `in_deck` é Reservadas e mostra o que já está num deck, inclusive o que está travado. `todas` mostra todos os estados. A lista já vem só daquele grupo: o filtro não mistura cartas de outros bulks. A busca por nome é local. Cores é um multiselect com o ícone de cada cor e usa a identidade de cor da carta; incolor entra como `C`. Custo de mana usa as faixas `0`, `1`, `2`, `3`, `4`, `5`, `6` e `7+`. A organização fica ao lado dos filtros. `cartas` é a grade, uma cópia por cartão: imagem grande, nome, custo de mana à direita do nome, identidade de cor numa linha própria, "Lendária" quando o tipo traz isso, onde está, o status e o botão principal. `lista` é uma linha por carta: a miniatura permanece, o custo fica com o nome, as cores ficam abaixo, e tipo, casa, preço, estado e a ação ocupam a largura.
+`GET /groups/{id}/copies`. A URL guarda `q`, `estado` (`available`, `in_deck`, `todas`), `cores` (lista com `W`, `U`, `B`, `R`, `G` e `C`), `cmc` (`0` a `7+`) e `destino`. A escolha entre `cartas` e `lista` é uma preferência do navegador: fica salva no `localStorage` e não vai para a URL. Sem `estado`, o filtro começa em Livre (`available`) e mostra só o que está livre. `in_deck` é Reservadas e mostra o que já está num deck, inclusive o que está travado. `todas` mostra todos os estados. A lista já vem só daquele grupo: o filtro não mistura cartas de outros bulks. A busca por nome é local. Cores é um multiselect com o ícone de cada cor e usa a identidade de cor da carta; incolor entra como `C`. A seleção funciona por interseção: a carta precisa ter todas as cores marcadas, então marcar azul e verde não mostra cartas só verdes. Custo de mana usa as faixas `0`, `1`, `2`, `3`, `4`, `5`, `6` e `7+`. A organização fica ao lado dos filtros. `cartas` é a grade, uma cópia por cartão: imagem grande, nome, custo de mana à direita do nome, identidade de cor numa linha própria, "Lendária" quando o tipo traz isso, onde está, o status e o botão principal. `lista` é uma linha por carta: a miniatura permanece, o custo fica com o nome, as cores ficam abaixo, e tipo, casa, preço, estado e a ação ocupam a largura.
 
 O status aparece por texto, cor e ícone: **Livre** em verde, **Reservada** em azul (`in_deck` destravada), **Travada** em âmbar (`locked`) e **Indisponível** em cinza (pedido aberto ou carta em uso fora dos seus grupos). O mesmo ícone aparece no canto da imagem. Carta indisponível fica esmaecida e o botão fica desabilitado, mas o cartão continua clicável para abrir o detalhe. Clicar no cartão, travado ou não, abre o detalhe: imagem, tipo, custo separado das cores, texto da carta numa caixa, estado, casa, preço e os mesmos botões de selecionar e de `...` que existem fora do modal.
 
@@ -268,30 +270,29 @@ Carta cadastrada permanece na lista mesmo com preço nulo.
 
 ### Decks da pessoa
 
-Lista os decks da pessoa, em qualquer bulk. Vazio: "Você ainda não tem nenhum deck." Criar pede nome e formato; o deck criado já pode receber cartas de qualquer bulk. O seletor explica:
+Lista os decks da pessoa, em qualquer bulk. Vazio: "Você ainda não tem nenhum deck." Criar pede nome e formato; o deck nasce em branco e já pode receber cartas de qualquer bulk. O seletor explica:
 
 - Commander 10: até R$ 10 nas cartas e até R$ 5 na soma dos comandantes
 - Commander 100, 200 e 500: teto de preço ainda não definido
 - Competitivo: sem teto de preço
 
+A lista tem duas organizações, `grade` e `lista`, ao lado de "Criar deck". A escolha é uma preferência do navegador: fica salva no `localStorage` e não vai para a URL. Cada deck mostra a imagem do comandante como capa (a dupla aparece lado a lado, e sem comandante há um espaço com "Sem comandante"), o nome, o formato, as cores da identidade dos comandantes, a quantidade de cartas e os nomes dos comandantes. Clicar no deck abre a página dele. O menu `...` apaga o deck depois da confirmação: "As cartas voltam para o bulk, livres, na casa de quem está com elas, inclusive as travadas."
+
 ### Deck
 
 Só o dono edita. Outra pessoa não chega aqui pela lista do grupo, que só devolve os decks dela. Um link direto de deck alheio cai no erro da API.
 
-Cabeçalho: nome, formato, contagem, orçamento, avisos. Renomear e trocar formato usam `PATCH`. Apagar pede confirmação: "As cartas voltam para o bulk, livres, na casa de quem está com elas."
+A página não mostra o cabeçalho do app, o nome do grupo nem a navegação Bulk, Decks, Encontro e Membros. O topo é um banner com a imagem do comandante (ou das duas imagens, lado a lado, quando é uma dupla) desfocada no fundo e o nome do comandante em destaque. Sem comandante, o nome do deck ocupa o lugar e o banner usa um gradiente. Uma seta discreta volta para a lista de decks. Os botões ficam sobre o banner: Editar, Editar em bulk e Apagar. Apagar pede confirmação: "Você realmente deseja apagar o deck? As cartas voltam para o bulk, livres, na casa de quem está com elas, inclusive as travadas."
 
-Dois blocos, comandantes e o restante, pela `role`. Carta sem preço mostra "sem preço". Aviso com `card_copy_id` repete na linha da carta.
+Logo abaixo do banner ficam o formato, os símbolos e o nome da identidade de cor, a contagem no formato "x de 100 cartas" e o orçamento. O orçamento mostra só o total das cartas e o teto do formato (R$ 10, R$ 100, R$ 200 ou R$ 500), sem somar o comandante; competitivo não mostra teto. Renomear e trocar formato usam `PATCH`.
 
-Marcar comandante manda a lista inteira de `card_copy_ids` que devem ficar com `role` `commander`. Tirar o último manda `[]`. O botão só aparece na carta com `can_toggle_commander`; a API recusa com 409 o comandante inválido.
+As cartas ficam em duas colunas, agrupadas por Comandantes, Criaturas, Planeswalkers, Batalhas, Instantâneas, Feitiços, Encantamentos, Artefatos, Terrenos e Outras cartas. Cada linha é só o nome e o preço, sem imagem. O botão de travar/destravar vem antes do aviso e do nome. O aviso é um sino quando há pedido aberto (com o nome de quem pediu) e um triângulo para os demais avisos da carta. Clicar na linha abre o detalhe.
 
-A linha do deck na lista do grupo mostra a foto e o nome dos `commanders` (ou "Sem comandante"). O cabeçalho do deck e a linha do deck na lista do grupo mostram `color_identity` com os ícones das cores (símbolos do Scryfall; lista vazia usa o símbolo de incolor) e `color_identity_name`. Cada carta do deck tem a foto de `catalog.image_url`.
+O detalhe mostra imagem, nome em português e inglês, custo de mana, tipo, cores, texto, palavras-chave, parceria, legalidade no Commander, casa, preço, papel no deck e estado da trava. As ações são Remover do deck, Remover de comandante (quando `can_toggle_commander`), Travar para o deck/Destravar e Atualizar preço (quando a casa é a pessoa e a carta não é básica). Com pedido aberto `pending_acceptance`, as ações são Aceitar e Recusar. Não há compartilhar.
 
-Adicionar tem dois caminhos, os dois a partir desta tela:
+Editar em bulk abre um modal largo com um campo de texto grande e rolável. A lista vem com todas as cartas, uma por linha, no formato `1x Nome`, separada por títulos `# Comandante`, `# Criaturas` etc. A pessoa pode editar qualquer linha, apagar o comandante ou colar outra lista. O envio manda `PUT /decks/{id}/bulk` com `{ name, role }`. Se qualquer nome não existir, a API responde 422, o modal mostra os nomes não reconhecidos e nada é alterado.
 
-- Adicionar carta: a mesma busca de catálogo, com `deck_id`, e a quantidade. `POST /decks/{id}/copies`. A API coloca no deck uma cópia livre da casa, se houver, e cadastra o resto já no deck. Nenhuma das duas fica travada.
-- Selecionar do bulk o que já está na casa da pessoa continua sendo ação do cartão livre no bulk, com este deck como destino. Se ela abrir o deck e ainda não tem carta, o texto aponta para o bulk. Travar e destravar ficam nesta tela, não no bulk.
-
-Mover lista os outros decks da pessoa, de qualquer bulk, com `GET /decks`. Destino no mesmo deck não aparece. Comandante no deck de origem volta a `main`; a pessoa marca de novo se quiser. A tela diz isso antes de confirmar.
+Adicionar carta continua disponível: a mesma busca de catálogo, com `deck_id`, e a quantidade. `POST /decks/{id}/copies`. A API coloca no deck uma cópia livre da casa, se houver, e cadastra o resto já no deck. Nenhuma das duas fica travada. Selecionar do bulk o que já está na casa da pessoa continua sendo ação do cartão livre no bulk, com este deck como destino.
 
 ### Encontro
 

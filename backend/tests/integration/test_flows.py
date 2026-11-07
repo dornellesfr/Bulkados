@@ -127,6 +127,23 @@ async def test_login_uses_email_and_the_same_error(client: AsyncClient) -> None:
 
 
 @pytest.mark.integration
+async def test_a_valid_token_recreates_the_missing_local_user(
+    client: AsyncClient,
+    auth_provider: FakeAuth,
+) -> None:
+    user_id = await auth_provider.sign_up("novo@example.com", "password123")
+    session = await auth_provider.sign_in("novo@example.com", "password123")
+
+    me = await client.get("/api/v1/me", headers=bearer(session.access_token))
+
+    assert me.status_code == 200, me.text
+    body = obj(me)
+    assert body["id"] == str(user_id)
+    assert body["email"] == "novo@example.com"
+    assert (body["first_name"], body["last_name"]) == ("novo", "Conta")
+
+
+@pytest.mark.integration
 async def test_forgot_password_returns_the_same_message(client: AsyncClient) -> None:
     await register(client, "ada")
     known = await client.post(
@@ -440,6 +457,77 @@ async def test_a_locked_deck_card_cannot_be_requested_from_another_group(
 
     assert opened.status_code == 201
     assert obj(opened)["status"] == "pending_acceptance"
+
+
+@pytest.mark.integration
+async def test_deleting_a_deck_releases_even_locked_cards_to_the_bulk(
+    client: AsyncClient,
+) -> None:
+    ada = await register(client, "ada")
+    group = await create_group(client, ada["access_token"])
+    headers = bearer(ada["access_token"])
+    deck = obj(
+        await client.post(
+            "/api/v1/decks",
+            json={"name": "Deck", "format": "commander_10"},
+            headers=headers,
+        )
+    )
+    oracle_id = await insert_catalog("Sol Ring")
+    [copy] = rows(
+        await client.post(
+            f"/api/v1/decks/{deck['id']}/copies",
+            json={"oracle_id": oracle_id, "quantity": 1},
+            headers=headers,
+        )
+    )
+    locked = await client.post(
+        f"/api/v1/decks/{deck['id']}/cards/{copy['id']}/lock",
+        headers=headers,
+    )
+    deleted = await client.delete(f"/api/v1/decks/{deck['id']}", headers=headers)
+    [released] = rows(await client.get(f"/api/v1/groups/{group['id']}/copies", headers=headers))
+    decks = rows(await client.get("/api/v1/decks", headers=headers))
+
+    assert locked.status_code == 200
+    assert obj(locked)["locked"] is True
+    assert deleted.status_code == 204
+    assert decks == []
+    assert (released["state"], released["locked"], released["visibility"]) == (
+        "available",
+        False,
+        "available",
+    )
+    assert released["deck"] is None
+
+
+@pytest.mark.integration
+async def test_a_new_deck_is_empty_and_the_list_counts_its_cards(
+    client: AsyncClient,
+) -> None:
+    ada = await register(client, "ada")
+    await create_group(client, ada["access_token"])
+    headers = bearer(ada["access_token"])
+    created = obj(
+        await client.post(
+            "/api/v1/decks",
+            json={"name": "Vazio", "format": "commander_10"},
+            headers=headers,
+        )
+    )
+    [empty] = rows(await client.get("/api/v1/decks", headers=headers))
+    oracle_id = await insert_catalog("Sol Ring")
+    await client.post(
+        f"/api/v1/decks/{created['id']}/copies",
+        json={"oracle_id": oracle_id, "quantity": 1},
+        headers=headers,
+    )
+    [filled] = rows(await client.get("/api/v1/decks", headers=headers))
+
+    assert created["card_count"] == 0
+    assert empty["card_count"] == 0
+    assert empty["commanders"] == []
+    assert filled["card_count"] == 1
 
 
 @pytest.mark.integration

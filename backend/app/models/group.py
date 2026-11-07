@@ -1,6 +1,6 @@
 from uuid import UUID, uuid4
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint, Uuid
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.enums import MembershipStatus
@@ -17,6 +17,7 @@ class Group(CreatedAtMixin, Base):
         Uuid(as_uuid=True),
         ForeignKey("users.id"),
         nullable=False,
+        index=True,
     )
 
 
@@ -24,6 +25,7 @@ class GroupMember(CreatedAtMixin, Base):
     __tablename__ = "group_members"
     __table_args__ = (
         UniqueConstraint("group_id", "user_id", name="uq_group_members_group_id_user_id"),
+        Index("ix_group_members_user_id_status", "user_id", "status"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -31,13 +33,11 @@ class GroupMember(CreatedAtMixin, Base):
         Uuid(as_uuid=True),
         ForeignKey("groups.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
     user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id"),
         nullable=False,
-        index=True,
     )
     status: Mapped[MembershipStatus] = mapped_column(
         str_enum(MembershipStatus, "membership_status"),

@@ -4,7 +4,8 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-# Antes de importar a aplicação: no ambiente de teste o admin do startup não é criado.
+# Antes de importar a aplicação: o ambiente de teste usa TEST_DATABASE_URL
+# (ou o Postgres local de teste) e não cria o admin do startup.
 os.environ["ENVIRONMENT"] = "test"
 
 from app.main import create_app

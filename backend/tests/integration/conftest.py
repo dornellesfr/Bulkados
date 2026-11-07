@@ -35,7 +35,7 @@ class FakeAuth:
         if record is None or record[0] != password:
             raise InvalidCredentialsError
         return AuthSession(
-            access_token=_token(record[1]),
+            access_token=_token(record[1], email),
             refresh_token=f"refresh-{record[1]}",
             expires_in=3600,
         )
@@ -99,14 +99,17 @@ class FakeCatalogSource:
             yield pair
 
 
-def _token(user_id: UUID) -> str:
+def _token(user_id: UUID, email: str | None = None) -> str:
+    payload = {
+        "sub": str(user_id),
+        "aud": "authenticated",
+        "iss": "https://example.supabase.co/auth/v1",
+        "exp": datetime.now(UTC) + timedelta(hours=1),
+    }
+    if email is not None:
+        payload["email"] = email
     encoded = jwt.encode(
-        {
-            "sub": str(user_id),
-            "aud": "authenticated",
-            "iss": "https://example.supabase.co/auth/v1",
-            "exp": datetime.now(UTC) + timedelta(hours=1),
-        },
+        payload,
         "test-secret",
         algorithm="HS256",
     )

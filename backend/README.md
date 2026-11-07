@@ -48,6 +48,12 @@ A API fica em `http://127.0.0.1:8000`. A documentação interativa fica em `http
 
 `GET /api/v1/health` responde sem consultar o banco. `GET /api/v1/ready` confirma que o PostgreSQL aceita conexão.
 
+## Desempenho do banco
+
+Cada round-trip até um PostgreSQL remoto custa, neste ambiente, uns 200 ms. Como as telas fazem de duas a quatro consultas em sequência, a diferença entre um banco remoto e um local aparece direto no tempo de resposta. Para desenvolver, prefira o Postgres local do Compose (`DATABASE_URL=...localhost:5432/magic_bulk`). Em produção, mantenha a API na mesma região do banco.
+
+As consultas de lista já buscam os dados em lote e os índices cobrem os filtros usados com mais frequência (`group_members`, `card_copies`, `requests`, `decks` e as buscas por prefixo do catálogo). O pool não faz `ping` em toda leitura; ele recicla conexões antigas a cada 5 minutos.
+
 ## Testes e checagens
 
 ```bash
@@ -57,9 +63,13 @@ uv run mypy
 uv run pytest
 ```
 
-`uv run pytest` deixa de fora os testes que precisam do PostgreSQL. Com o banco no ar:
+`uv run pytest` deixa de fora os testes que precisam do PostgreSQL. Quando eles rodam, o pytest entra em `ENVIRONMENT=test`, então o backend usa `TEST_DATABASE_URL` e nunca o `DATABASE_URL` da aplicação. Sem `TEST_DATABASE_URL`, o padrão é `postgresql+asyncpg://postgres:postgres@localhost:5432/magic_bulk_test`. O banco de teste é truncado a cada teste.
+
+Com o Postgres local no ar e o banco de teste criado:
 
 ```bash
+docker compose -f ../compose.yaml --profile local up db -d
+docker exec bulkados-db psql -U postgres -d magic_bulk -c "CREATE DATABASE magic_bulk_test"
 uv run pytest -o addopts="-q --strict-markers"
 ```
 
@@ -77,7 +87,7 @@ A dependência `DbSession` abre a sessão do request e confirma a transação se
 
 ## Variáveis de ambiente
 
-O arquivo `.env.example` lista os valores locais. `DATABASE_URL` usa o driver `postgresql+asyncpg`.
+O arquivo `.env.example` lista os valores locais. `DATABASE_URL` usa o driver `postgresql+asyncpg` e é o banco de desenvolvimento/produção. `TEST_DATABASE_URL` é usado só quando `ENVIRONMENT=test`; o padrão aponta para o Postgres local `magic_bulk_test`.
 
 Auth fica no Supabase. O backend precisa da URL, da chave anônima, da service role e de um JWT secret ou JWKS para validar o access token. A service role só existe no processo do backend.
 

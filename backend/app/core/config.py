@@ -1,10 +1,12 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import SecretStr, field_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 type Environment = Literal["development", "test", "production"]
+
+DEFAULT_TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/magic_bulk_test"
 
 
 class Settings(BaseSettings):
@@ -21,6 +23,7 @@ class Settings(BaseSettings):
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/magic_bulk"
+    test_database_url: str = DEFAULT_TEST_DATABASE_URL
     supabase_url: str = ""
     supabase_anon_key: SecretStr = SecretStr("")
     supabase_service_role_key: SecretStr = SecretStr("")
@@ -31,6 +34,13 @@ class Settings(BaseSettings):
     scryfall_api_url: str = "https://api.scryfall.com"
     scryfall_user_agent: str = "MagicBulkBackend/0.1"
 
+    @property
+    def effective_database_url(self) -> str:
+        """No modo test o banco é o local de teste; nos demais, o DATABASE_URL configurado."""
+        if self.environment == "test":
+            return self.test_database_url
+        return self.database_url
+
     @field_validator("database_url")
     @classmethod
     def database_url_must_use_asyncpg(cls, value: str) -> str:
@@ -39,6 +49,24 @@ class Settings(BaseSettings):
             message = "database_url must start with postgresql+asyncpg://"
             raise ValueError(message)
         return value
+
+    @field_validator("test_database_url")
+    @classmethod
+    def test_database_url_must_use_asyncpg(cls, value: str) -> str:
+        if not value:
+            return DEFAULT_TEST_DATABASE_URL
+        scheme = "postgresql+asyncpg://"
+        if not value.startswith(scheme):
+            message = "test_database_url must start with postgresql+asyncpg://"
+            raise ValueError(message)
+        return value
+
+    @model_validator(mode="after")
+    def test_database_must_differ_from_app_database(self) -> Self:
+        if self.environment == "test" and self.test_database_url == self.database_url:
+            message = "test_database_url must differ from database_url"
+            raise ValueError(message)
+        return self
 
     @field_validator("supabase_url", "supabase_jwks_url", "scryfall_api_url")
     @classmethod

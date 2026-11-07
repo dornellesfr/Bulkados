@@ -22,7 +22,6 @@ function cleanSearch(search: BulkSearch): BulkSearch {
     ...(search.cores && search.cores.length > 0 ? { cores: search.cores } : {}),
     ...(search.cmc ? { cmc: search.cmc } : {}),
     ...(search.destino ? { destino: search.destino } : {}),
-    ...(search.vista === 'lista' ? { vista: 'lista' as const } : {}),
   }
 }
 

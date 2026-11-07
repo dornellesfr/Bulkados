@@ -6,6 +6,7 @@ from app.api.deps import CurrentUser, DbSession, Prices
 from app.schemas.copies import CopyRead
 from app.schemas.decks import (
     CommandersUpdate,
+    DeckBulkUpdate,
     DeckCopyCreate,
     DeckCreate,
     DeckDetail,
@@ -75,6 +76,17 @@ async def update_deck(
 @router.delete("/decks/{deck_id}", status_code=204)
 async def delete_deck(deck_id: UUID, user: CurrentUser, session: DbSession) -> None:
     await deck_service.delete_deck(session, user, deck_id)
+
+
+@router.put("/decks/{deck_id}/bulk", response_model=DeckDetail)
+async def replace_deck_cards(
+    deck_id: UUID,
+    body: DeckBulkUpdate,
+    user: CurrentUser,
+    session: DbSession,
+    prices: Prices,
+) -> DeckDetail:
+    return await deck_service.replace_deck_cards(session, user, deck_id, body, prices)
 
 
 @router.post("/decks/{deck_id}/commanders", response_model=DeckDetail)

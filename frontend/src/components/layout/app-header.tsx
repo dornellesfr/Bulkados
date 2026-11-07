@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useMatchRoute } from '@tanstack/react-router'
 
 import { AccountMenu } from '@/components/layout/account-menu'
 import { ThemeToggle } from '@/components/layout/theme-toggle'
@@ -6,7 +6,16 @@ import { useSession } from '@/lib/auth/session'
 
 export function AppHeader() {
   const session = useSession()
+  const matchRoute = useMatchRoute()
   const signedIn = session.status === 'in'
+  const isDeckPage = matchRoute({
+    to: '/grupos/$groupId/decks/$deckId',
+    fuzzy: true,
+  })
+
+  if (signedIn && isDeckPage) {
+    return null
+  }
 
   return (
     <header className="border-b bg-background">

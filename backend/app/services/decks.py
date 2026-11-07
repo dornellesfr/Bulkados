@@ -1,6 +1,6 @@
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import DomainError
@@ -12,8 +12,9 @@ from app.domain.deck_rules import (
     commander_set_error,
     evaluate_deck,
 )
-from app.domain.enums import CopyState, DeckRole
+from app.domain.enums import OPEN_REQUEST_STATUSES, CopyState, DeckRole
 from app.domain.pricing import PriceProvider
+from app.domain.search import normalize_search_text
 from app.models.catalog import CatalogCard
 from app.models.copy import CardCopy, CardCopyGroup
 from app.models.deck import Deck, DeckCard
@@ -22,6 +23,7 @@ from app.models.user import User
 from app.schemas.copies import CopyRead, PersonRef
 from app.schemas.decks import (
     CommandersUpdate,
+    DeckBulkUpdate,
     DeckCardRead,
     DeckCatalogRef,
     DeckCommanderRef,
@@ -55,7 +57,6 @@ from app.services.copy_state import (
     remove_deck_card,
 )
 from app.services.deck_identity import (
-    deck_commanders,
     ensure_commander_seat,
     ensure_fits_identity,
 )
@@ -69,16 +70,40 @@ async def create_deck(
     deck = Deck(owner_id=user.id, name=body.name, format=body.format)
     session.add(deck)
     await session.flush()
-    return _summary(deck, [])
+    return _summary(deck, [], 0)
 
 
 async def list_decks(session: AsyncSession, user: User) -> list[DeckSummary]:
-    rows = await session.scalars(
-        select(Deck).where(Deck.owner_id == user.id).order_by(Deck.created_at)
+    rows = await session.execute(
+        select(
+            Deck,
+            func.count(DeckCard.card_copy_id).over(partition_by=Deck.id).label("card_count"),
+            CatalogCard,
+        )
+        .outerjoin(DeckCard, DeckCard.deck_id == Deck.id)
+        .outerjoin(CardCopy, CardCopy.id == DeckCard.card_copy_id)
+        .outerjoin(
+            CatalogCard,
+            and_(
+                CatalogCard.id == CardCopy.catalog_card_id,
+                DeckCard.role == DeckRole.commander,
+            ),
+        )
+        .where(Deck.owner_id == user.id)
+        .order_by(Deck.created_at, CatalogCard.name_en)
     )
-    decks = list(rows)
-    commanders = await deck_commanders(session, [deck.id for deck in decks])
-    return [_summary(deck, commanders.get(deck.id, [])) for deck in decks]
+    decks: dict[UUID, Deck] = {}
+    counts: dict[UUID, int] = {}
+    commanders: dict[UUID, list[CatalogCard]] = {}
+    for deck, count, card in rows:
+        decks.setdefault(deck.id, deck)
+        counts[deck.id] = count
+        if card is not None:
+            commanders.setdefault(deck.id, []).append(card)
+    return [
+        _summary(deck, commanders.get(deck.id, []), counts.get(deck.id, 0))
+        for deck in decks.values()
+    ]
 
 
 async def get_deck(session: AsyncSession, user: User, deck_id: UUID) -> DeckDetail:
@@ -203,6 +228,124 @@ async def create_deck_copies(
     return reads
 
 
+async def replace_deck_cards(
+    session: AsyncSession,
+    user: User,
+    deck_id: UUID,
+    body: DeckBulkUpdate,
+    prices: PriceProvider,
+) -> DeckDetail:
+    """Troca a lista do deck pelos nomes enviados, sem tocar em nada se um nome não existir."""
+    deck = await require_deck_owner(session, deck_id, user.id)
+    wanted = [(item.name.strip(), item.role) for item in body.cards if item.name.strip()]
+    resolved = await _resolve_bulk_cards(session, [name for name, _ in wanted])
+    unknown = list(dict.fromkeys(name for name, _ in wanted if name not in resolved))
+    if unknown:
+        raise DomainError(422, f"Não reconhecemos estas cartas: {', '.join(unknown)}.")
+    desired = [(resolved[name], role) for name, role in wanted]
+
+    facts = [_card_fact(card, role) for card, role in desired]
+    commanders = [fact for fact in facts if fact.role is DeckRole.commander]
+    error = commander_set_error(commanders)
+    if error is not None:
+        raise DomainError(409, error)
+    if commanders:
+        outside = cards_outside_identity(
+            commanders,
+            [fact for fact in facts if fact.role is DeckRole.main],
+        )
+        if outside:
+            raise DomainError(409, _outside_identity_message(outside))
+
+    rows = (
+        await session.execute(
+            select(DeckCard, CardCopy, CatalogCard)
+            .join(CardCopy, CardCopy.id == DeckCard.card_copy_id)
+            .join(CatalogCard, CatalogCard.id == CardCopy.catalog_card_id)
+            .where(DeckCard.deck_id == deck.id)
+        )
+    ).all()
+    existing: dict[UUID, list[tuple[DeckCard, CardCopy, CatalogCard]]] = {}
+    for row, copy, card in rows:
+        existing.setdefault(card.id, []).append((row, copy, card))
+    open_ids: set[UUID] = set()
+    if rows:
+        open_ids = set(
+            await session.scalars(
+                select(CardRequest.card_copy_id).where(
+                    CardRequest.card_copy_id.in_([copy.id for _, copy, _ in rows]),
+                    CardRequest.status.in_(tuple(OPEN_REQUEST_STATUSES)),
+                )
+            )
+        )
+
+    kept: list[tuple[CardCopy | None, CatalogCard, DeckRole]] = []
+    for card, role in desired:
+        bucket = existing.get(card.id, [])
+        bucket.sort(key=lambda item: (item[1].id not in open_ids, item[0].role != role))
+        if bucket:
+            row, copy, _ = bucket.pop(0)
+            row.role = role
+            kept.append((copy, card, role))
+        else:
+            kept.append((None, card, role))
+
+    removed = [item for bucket in existing.values() for item in bucket]
+    blocked = [card.name_en for _, existing_copy, card in removed if existing_copy.id in open_ids]
+    if blocked:
+        names = ", ".join(dict.fromkeys(blocked))
+        raise DomainError(
+            409,
+            f"Estas cartas têm pedido aberto e não podem sair do deck: {names}.",
+        )
+
+    for _, existing_copy, _ in removed:
+        await remove_deck_card(session, existing_copy.id)
+        mark_available(existing_copy)
+
+    for kept_copy, card, role in kept:
+        if kept_copy is not None:
+            continue
+        free = await _free_copies(session, user, deck, card, 1)
+        if free:
+            [taken] = free
+            taken.state = CopyState.in_deck
+            taken.locked = False
+            taken.deck_id = deck.id
+            session.add(DeckCard(deck_id=deck.id, card_copy_id=taken.id, role=role))
+        else:
+            await _register_in_deck(session, user, deck, card, 1, prices, role)
+
+    await session.flush()
+    return await _detail(session, deck)
+
+
+async def _resolve_bulk_cards(
+    session: AsyncSession,
+    names: list[str],
+) -> dict[str, CatalogCard]:
+    keys = {normalize_search_text(name): name for name in names}
+    keys.pop("", None)
+    if not keys:
+        return {}
+    rows = await session.scalars(
+        select(CatalogCard)
+        .where(
+            or_(
+                CatalogCard.search_en.in_(keys),
+                CatalogCard.search_pt.in_(keys),
+            )
+        )
+        .order_by(CatalogCard.name_en)
+    )
+    found: dict[str, CatalogCard] = {}
+    for card in rows:
+        for key in (card.search_en, card.search_pt):
+            if key is not None and key in keys and key not in found:
+                found[key] = card
+    return {keys[key]: card for key, card in found.items()}
+
+
 async def _free_copies(
     session: AsyncSession,
     user: User,
@@ -232,6 +375,7 @@ async def _register_in_deck(
     card: CatalogCard,
     quantity: int,
     prices: PriceProvider,
+    role: DeckRole = DeckRole.main,
 ) -> list[CopyRead]:
     group_ids = await accepted_group_ids(session, user.id)
     cents, fetched_at = await quote_price(card, prices)
@@ -251,7 +395,7 @@ async def _register_in_deck(
         copies.append(copy)
     await session.flush()
     for copy in copies:
-        session.add(DeckCard(deck_id=deck.id, card_copy_id=copy.id, role=DeckRole.main))
+        session.add(DeckCard(deck_id=deck.id, card_copy_id=copy.id, role=role))
         for group_id in group_ids:
             session.add(CardCopyGroup(card_copy_id=copy.id, group_id=group_id))
     linked = sorted(group_ids, key=str)
@@ -325,7 +469,7 @@ async def set_locked(
     return await read_copy(session, copy)
 
 
-def _summary(deck: Deck, commanders: list[CatalogCard]) -> DeckSummary:
+def _summary(deck: Deck, commanders: list[CatalogCard], card_count: int) -> DeckSummary:
     identity = (
         canonical_colors(color for card in commanders for color in card.color_identity)
         if commanders
@@ -338,6 +482,7 @@ def _summary(deck: Deck, commanders: list[CatalogCard]) -> DeckSummary:
         created_at=deck.created_at,
         color_identity=identity,
         color_identity_name=identity_name(identity) if identity is not None else None,
+        card_count=card_count,
         commanders=[
             DeckCommanderRef(
                 name_en=card.name_en,
@@ -370,10 +515,19 @@ async def _card_of(session: AsyncSession, copy: CardCopy) -> CatalogCard:
 
 
 def _fact(copy: CardCopy, card: CatalogCard, role: DeckRole) -> DeckCardFact:
+    return _card_fact(card, role, copy.id, copy.price_cents)
+
+
+def _card_fact(
+    card: CatalogCard,
+    role: DeckRole,
+    copy_id: UUID | None = None,
+    price_cents: int | None = None,
+) -> DeckCardFact:
     return DeckCardFact(
-        card_copy_id=copy.id,
+        card_copy_id=copy_id or uuid4(),
         name_en=card.name_en,
-        price_cents=copy.price_cents,
+        price_cents=price_cents,
         is_basic=card.is_basic,
         any_number_allowed=card.any_number_allowed,
         color_identity=tuple(card.color_identity),

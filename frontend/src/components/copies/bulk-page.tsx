@@ -76,6 +76,30 @@ const visibilityOptions: Array<{ value: BulkEstado | ''; label: string }> = [
 
 const colorCodes: Array<ColorCode> = ['W', 'U', 'B', 'R', 'G', 'C']
 
+const VIEW_PREFERENCE_KEY = 'magic-bulk.bulk-view'
+
+function useBulkView() {
+  const [view, setView] = useState<BulkView>(() => {
+    if (typeof localStorage === 'undefined') {
+      return 'cartas'
+    }
+
+    return localStorage.getItem(VIEW_PREFERENCE_KEY) === 'lista'
+      ? 'lista'
+      : 'cartas'
+  })
+
+  function changeView(next: BulkView) {
+    setView(next)
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(VIEW_PREFERENCE_KEY, next)
+    }
+  }
+
+  return [view, changeView] as const
+}
+
 const manaOptions: Array<{ value: ManaBucket | ''; label: string }> = [
   { value: '', label: 'Custo de mana' },
   { value: '0', label: 'Custo 0' },
@@ -108,7 +132,7 @@ export function BulkPage({
   const { data: copies } = useSuspenseQuery(copiesQueryOptions(groupId))
   const { data: decks } = useSuspenseQuery(decksQueryOptions())
   const visible = filterCopies(copies, search)
-  const view: BulkView = search.vista === 'lista' ? 'lista' : 'cartas'
+  const [view, changeView] = useBulkView()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [registerOpen, setRegisterOpen] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<Copy | null>(null)
@@ -245,15 +269,7 @@ export function BulkPage({
               Filtrar
             </Button>
           </form>
-          <OrganizationToggle
-            view={view}
-            onChange={(vista) => {
-              onSearchChange({
-                ...search,
-                vista: vista === 'lista' ? 'lista' : undefined,
-              })
-            }}
-          />
+          <OrganizationToggle view={view} onChange={changeView} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ColorFilter
@@ -292,10 +308,7 @@ export function BulkPage({
               type="button"
               variant="ghost"
               onClick={() => {
-                onSearchChange({
-                  destino: search.destino,
-                  vista: search.vista,
-                })
+                onSearchChange({ destino: search.destino })
               }}
             >
               Limpar filtros

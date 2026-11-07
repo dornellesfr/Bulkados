@@ -1,8 +1,10 @@
+import time
 from collections.abc import Sequence
 
-from sqlalchemy import case, or_, select
+from sqlalchemy import case, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.errors import CatalogUnavailableError, DomainError
 from app.domain.scryfall import CatalogDraft
 from app.domain.search import normalize_search_text
@@ -12,6 +14,8 @@ from app.models.catalog_sync import CatalogSync
 from app.schemas.catalog import CatalogCardRead
 
 _SUGGESTION_LIMIT = 20
+_LOADED_CACHE_SECONDS = 300
+_loaded_until = 0.0
 
 
 async def search_cards(
@@ -24,9 +28,25 @@ async def search_cards(
 
     Com `within`, só entram cartas cuja identidade de cor cabe nessas cores.
     """
-    if await _catalog_loaded(session):
+    if _loaded_cache_is_fresh():
         return await _search_local(session, query, within)
+    found = await _search_local(session, query, within)
+    if found or await _catalog_loaded(session):
+        _remember_loaded()
+        return found
     return await _search_live(session, catalog, query, within)
+
+
+def _loaded_cache_is_fresh() -> bool:
+    if get_settings().environment == "test":
+        return False
+    return time.monotonic() < _loaded_until
+
+
+def _remember_loaded() -> None:
+    global _loaded_until
+    if get_settings().environment != "test":
+        _loaded_until = time.monotonic() + _LOADED_CACHE_SECONDS
 
 
 async def _catalog_loaded(session: AsyncSession) -> bool:
@@ -49,9 +69,13 @@ async def _search_local(
     matches = or_(starts, inside)
     if within is not None:
         matches = matches & CatalogCard.color_identity.contained_by(list(within))
+    loaded = exists().where(
+        CatalogSync.id == 1,
+        CatalogSync.last_synced_at.is_not(None),
+    )
     statement = (
         select(CatalogCard)
-        .where(matches)
+        .where(matches, loaded)
         .order_by(case((exact, 0), (starts, 1), else_=2), CatalogCard.search_en.collate("C"))
         .limit(_SUGGESTION_LIMIT)
     )
