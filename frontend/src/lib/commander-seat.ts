@@ -1,4 +1,5 @@
 import type { PartnerKind } from '@/lib/api/schemas'
+import { isLegendary } from '@/lib/display'
 
 export type CommanderFacts = {
   nameEn: string
@@ -26,6 +27,13 @@ export function commanderSeat(
     return {
       allowed: false,
       reason: 'Este deck já tem dois comandantes.',
+    }
+  }
+
+  if (!isLegendary(card.typeLine)) {
+    return {
+      allowed: false,
+      reason: 'Só cartas lendárias podem ser comandantes.',
     }
   }
 
@@ -99,6 +107,10 @@ export function cardsOutsideIdentity(
 }
 
 function pairingIsValid(left: CommanderFacts, right: CommanderFacts) {
+  if (!isLegendary(left.typeLine) || !isLegendary(right.typeLine)) {
+    return false
+  }
+
   if (left.partnerKind === 'partner' && right.partnerKind === 'partner') {
     return true
   }
