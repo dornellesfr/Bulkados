@@ -11,7 +11,7 @@ from tests.integration.test_contract import (
     new_deck,
     register_copies,
 )
-from tests.integration.test_flows import register
+from tests.integration.test_flows import create_group, register
 
 
 async def copy_count() -> int:
@@ -36,7 +36,9 @@ async def add_to_deck(
 
 
 @pytest.mark.integration
-async def test_adding_a_card_locks_the_free_copy_from_the_bulk(client: AsyncClient) -> None:
+async def test_adding_a_card_puts_the_free_copy_in_the_deck_without_locking(
+    client: AsyncClient,
+) -> None:
     ada = await register(client, "ada")
     group = await group_with_members(client, ada)
     deck = await new_deck(client, group, ada)
@@ -46,7 +48,7 @@ async def test_adding_a_card_locks_the_free_copy_from_the_bulk(client: AsyncClie
     [added] = await add_to_deck(client, deck, ada["access_token"], oracle_id, 1)
 
     assert added["id"] == free["id"]
-    assert (added["state"], added["locked"], added["visibility"]) == ("in_deck", True, "in_deck")
+    assert (added["state"], added["locked"], added["visibility"]) == ("in_deck", False, "in_deck")
     assert await copy_count() == 1
     detail = obj(
         await client.get(f"/api/v1/decks/{deck['id']}", headers=bearer(ada["access_token"]))
@@ -99,3 +101,51 @@ async def test_it_never_takes_a_copy_that_is_in_another_persons_house(
     )
     still_free = next(copy for copy in listed if copy["id"] == graces["id"])
     assert still_free["state"] == "available"
+
+
+@pytest.mark.integration
+async def test_unlinking_is_blocked_for_the_last_group_or_when_the_copy_is_in_a_deck(
+    client: AsyncClient,
+) -> None:
+    ada = await register(client, "ada")
+    home = await group_with_members(client, ada)
+    other = await create_group(client, ada["access_token"], "Outro")
+    oracle_id = await insert_card("Sol Ring")
+    [copy] = await register_copies(client, home, ada, oracle_id)
+    headers = bearer(ada["access_token"])
+    group_ids = copy["group_ids"]
+    assert isinstance(group_ids, list)
+    assert set(group_ids) == {home["id"], other["id"]}
+
+    removed = await client.delete(
+        f"/api/v1/copies/{copy['id']}/groups/{other['id']}",
+        headers=headers,
+    )
+    assert removed.status_code == 200, removed.text
+    assert obj(removed)["group_ids"] == [home["id"]]
+
+    last = await client.delete(
+        f"/api/v1/copies/{copy['id']}/groups/{home['id']}",
+        headers=headers,
+    )
+    assert last.status_code == 409
+    assert last.json()["detail"] == "A carta precisa ficar em pelo menos um grupo."
+
+    deck = await new_deck(client, home, ada)
+    taken = await client.post(
+        f"/api/v1/decks/{deck['id']}/take",
+        json={"card_copy_id": copy["id"]},
+        headers=headers,
+    )
+    assert taken.status_code == 200, taken.text
+    assert obj(taken)["locked"] is False
+
+    blocked = await client.delete(
+        f"/api/v1/copies/{copy['id']}/groups/{home['id']}",
+        headers=headers,
+    )
+    assert blocked.status_code == 409
+    assert (
+        blocked.json()["detail"]
+        == "Essa carta está num deck. Devolva ao bulk antes de tirar o vínculo."
+    )

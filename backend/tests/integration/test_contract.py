@@ -16,10 +16,14 @@ CATALOG = {
     "image_url",
     "mana_cost",
     "type_line",
+    "oracle_text",
     "color_identity",
     "is_basic",
+    "keywords",
+    "can_be_commander",
+    "partner_kind",
 }
-DECK_CATALOG = CATALOG | {"commander_legal", "can_be_commander", "partner_kind"}
+DECK_CATALOG = CATALOG | {"commander_legal"}
 COPY = {
     "id",
     "catalog",
@@ -32,6 +36,7 @@ COPY = {
     "visibility",
     "deck",
     "open_request",
+    "group_ids",
 }
 OPEN_REQUEST = {"id", "status", "source", "requester"}
 DECK_CARD = {
@@ -182,7 +187,7 @@ async def test_group_copy_list_uses_the_same_shape_and_exposes_the_open_request(
     assert keys(item["open_request"]) == OPEN_REQUEST
     assert item["open_request"] == {
         "id": obj(requested)["id"],
-        "status": "awaiting_handoff",
+        "status": "pending_acceptance",
         "source": "bulk",
         "requester": identity(grace),
     }
@@ -209,6 +214,7 @@ async def test_deck_detail_and_edit_return_grouped_cards(client: AsyncClient) ->
     taken_copy = obj(taken)
     assert_copy_shape(taken_copy)
     assert taken_copy["visibility"] == "in_deck"
+    assert taken_copy["locked"] is False
     assert taken_copy["deck"] == {
         "id": deck["id"],
         "name": "Meu deck",
@@ -219,7 +225,6 @@ async def test_deck_detail_and_edit_return_grouped_cards(client: AsyncClient) ->
         assert response.status_code == 200
         assert {
             "id",
-            "group_id",
             "name",
             "format",
             "owner_id",
@@ -227,6 +232,7 @@ async def test_deck_detail_and_edit_return_grouped_cards(client: AsyncClient) ->
             "warnings",
             "cards",
         } <= set(body)
+        assert "group_id" not in body
         [card] = body["cards"] if isinstance(body["cards"], list) else []
         assert keys(card) == DECK_CARD
         assert keys(card["catalog"]) == DECK_CATALOG
@@ -255,14 +261,36 @@ async def test_handoffs_use_the_grouped_format(client: AsyncClient) -> None:
 
     assert set(for_ada) == {"to_bring", "to_receive"}
     [bring] = for_ada["to_bring"] if isinstance(for_ada["to_bring"], list) else []
-    assert keys(bring) == {"id", "source", "catalog", "requester", "target_deck"}
+    assert keys(bring) == {
+        "id",
+        "source",
+        "catalog",
+        "status",
+        "requester",
+        "holder",
+        "target_deck",
+        "requester_confirmed",
+        "holder_confirmed",
+    }
     assert keys(bring["catalog"]) == {"name_en", "name_pt"}
     assert bring["requester"] == identity(grace)
+    assert bring["holder"] == identity(ada)
+    assert bring["status"] == "pending_acceptance"
+    assert (bring["requester_confirmed"], bring["holder_confirmed"]) == (False, False)
     assert bring["target_deck"] == {"id": grace_deck["id"], "name": "Grace"}
     [receive] = for_grace["to_receive"] if isinstance(for_grace["to_receive"], list) else []
-    assert keys(receive) == {"id", "source", "catalog", "status", "holder", "target_deck"}
+    assert keys(receive) == {
+        "id",
+        "source",
+        "catalog",
+        "status",
+        "holder",
+        "target_deck",
+        "requester_confirmed",
+        "holder_confirmed",
+    }
     assert receive["holder"] == identity(ada)
-    assert receive["status"] == "awaiting_handoff"
+    assert receive["status"] == "pending_acceptance"
 
 
 @pytest.mark.integration
@@ -287,7 +315,7 @@ async def test_a_card_registered_straight_into_a_deck_also_lives_in_the_bulk(
     assert_copy_shape(copy)
     [listed] = rows(in_bulk)
     assert listed["id"] == copy["id"]
-    assert (listed["visibility"], listed["locked"]) == ("in_deck", True)
+    assert (listed["visibility"], listed["locked"]) == ("in_deck", False)
     assert listed["deck"] == {
         "id": deck["id"],
         "name": "Meu deck",

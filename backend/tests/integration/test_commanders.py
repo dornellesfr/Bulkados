@@ -8,7 +8,7 @@ from app.domain.enums import CommanderLegal, PartnerKind
 from app.domain.search import normalize_search_text
 from app.models.catalog import CatalogCard
 from tests.integration.conftest import bearer, obj, rows
-from tests.integration.test_contract import group_with_members, new_deck
+from tests.integration.test_contract import group_with_members, new_deck, register_copies
 from tests.integration.test_flows import register
 
 LEGENDARY = "Legendary Creature — Human Noble"
@@ -64,7 +64,7 @@ async def deck_holding(
         )
         assert taken.status_code == 200, taken.text
         copy_ids[name] = copy_id
-    return {**deck, "token": ada["access_token"]}, copy_ids
+    return {**deck, "token": ada["access_token"], "group_id": group["id"]}, copy_ids
 
 
 async def set_commanders(
@@ -246,3 +246,60 @@ async def test_dropping_one_of_two_commanders_is_refused_if_cards_need_its_color
     assert both == 200
     assert only_red == 409
     assert "Llanowar Elves" in str(body["detail"])
+
+
+@pytest.mark.integration
+async def test_take_can_seat_a_card_as_commander(client: AsyncClient) -> None:
+    ada = await register(client, "ada")
+    group = await group_with_members(client, ada)
+    deck = await new_deck(client, group, ada)
+    headers = bearer(ada["access_token"])
+    green = await insert_card(
+        "Partner G",
+        type_line=LEGENDARY,
+        commander=True,
+        colors=["G"],
+        partner=PartnerKind.partner,
+    )
+    red = await insert_card(
+        "Partner R",
+        type_line=LEGENDARY,
+        commander=True,
+        colors=["R"],
+        partner=PartnerKind.partner,
+    )
+    plain = await insert_card("Sol Ring")
+    [green_copy] = await register_copies(client, group, ada, green)
+    seated = await client.post(
+        f"/api/v1/decks/{deck['id']}/take",
+        json={"card_copy_id": green_copy["id"], "as_commander": True},
+        headers=headers,
+    )
+    assert seated.status_code == 200, seated.text
+    detail = obj(await client.get(f"/api/v1/decks/{deck['id']}", headers=headers))
+    cards = detail["cards"]
+    assert isinstance(cards, list)
+    assert cards[0]["role"] == "commander"
+
+    [red_copy] = await register_copies(client, group, ada, red)
+    refused = await client.post(
+        f"/api/v1/decks/{deck['id']}/take",
+        json={"card_copy_id": red_copy["id"]},
+        headers=headers,
+    )
+    paired = await client.post(
+        f"/api/v1/decks/{deck['id']}/take",
+        json={"card_copy_id": red_copy["id"], "as_commander": True},
+        headers=headers,
+    )
+    assert refused.status_code == 409
+    assert paired.status_code == 200, paired.text
+
+    [plain_copy] = await register_copies(client, group, ada, plain)
+    third = await client.post(
+        f"/api/v1/decks/{deck['id']}/take",
+        json={"card_copy_id": plain_copy["id"], "as_commander": True},
+        headers=headers,
+    )
+    assert third.status_code == 409
+    assert "dupla válida" in str(obj(third)["detail"])

@@ -265,12 +265,108 @@ async def test_second_bulk_request_conflicts(client: AsyncClient) -> None:
 
     assert created.status_code == 201
     assert first.status_code == 201
-    assert obj(first)["status"] == "awaiting_handoff"
+    assert obj(first)["status"] == "pending_acceptance"
     assert second.status_code == 409
 
 
 @pytest.mark.integration
-async def test_lock_is_visible_from_another_group(client: AsyncClient) -> None:
+async def test_a_bulk_request_needs_acceptance_and_both_confirmations(
+    client: AsyncClient,
+) -> None:
+    ada = await register(client, "ada")
+    grace = await register(client, "grace")
+    group = await create_group(client, ada["access_token"])
+    invited = await client.post(
+        f"/api/v1/groups/{group['id']}/invitations",
+        json={"email": "grace@example.com"},
+        headers=bearer(ada["access_token"]),
+    )
+    await client.post(
+        f"/api/v1/invitations/{obj(invited)['invitation_id']}/accept",
+        headers=bearer(grace["access_token"]),
+    )
+    oracle_id = await insert_catalog("Sol Ring")
+    [copy] = rows(
+        await client.post(
+            f"/api/v1/groups/{group['id']}/copies",
+            json={"oracle_id": oracle_id, "quantity": 1},
+            headers=bearer(ada["access_token"]),
+        )
+    )
+    deck = obj(
+        await client.post(
+            "/api/v1/decks",
+            json={"name": "Grace", "format": "commander_10"},
+            headers=bearer(grace["access_token"]),
+        )
+    )
+
+    created = await client.post(
+        f"/api/v1/decks/{deck['id']}/requests",
+        json={"card_copy_id": copy["id"], "group_id": group["id"]},
+        headers=bearer(grace["access_token"]),
+    )
+    request_id = obj(created)["id"]
+    early = await client.post(
+        f"/api/v1/requests/{request_id}/confirm",
+        headers=bearer(grace["access_token"]),
+    )
+    accepted = await client.post(
+        f"/api/v1/requests/{request_id}/accept",
+        headers=bearer(ada["access_token"]),
+    )
+    first = await client.post(
+        f"/api/v1/requests/{request_id}/confirm",
+        headers=bearer(grace["access_token"]),
+    )
+    before_both = obj(
+        await client.get(f"/api/v1/decks/{deck['id']}", headers=bearer(grace["access_token"]))
+    )
+    second = await client.post(
+        f"/api/v1/requests/{request_id}/confirm",
+        headers=bearer(ada["access_token"]),
+    )
+    detail = obj(
+        await client.get(f"/api/v1/decks/{deck['id']}", headers=bearer(grace["access_token"]))
+    )
+    [moved] = rows(
+        await client.get(
+            f"/api/v1/groups/{group['id']}/copies",
+            headers=bearer(grace["access_token"]),
+        )
+    )
+
+    assert created.status_code == 201
+    assert obj(created)["status"] == "pending_acceptance"
+    assert early.status_code == 409
+    assert accepted.status_code == 200
+    assert obj(accepted)["status"] == "awaiting_handoff"
+    assert first.status_code == 200
+    assert obj(first)["requester_confirmed"] is True
+    assert obj(first)["holder_confirmed"] is False
+    assert before_both["cards"] == []
+    assert second.status_code == 200
+    assert obj(second)["status"] == "completed"
+    cards = detail["cards"]
+    assert isinstance(cards, list)
+    assert [card["card_copy_id"] for card in cards] == [copy["id"]]
+    assert moved["holder"] == identity(grace)
+    assert (moved["state"], moved["locked"], moved["visibility"]) == (
+        "in_deck",
+        False,
+        "in_deck",
+    )
+    assert moved["deck"] == {
+        "id": deck["id"],
+        "name": "Grace",
+        "owner": identity(grace),
+    }
+
+
+@pytest.mark.integration
+async def test_a_locked_deck_card_cannot_be_requested_from_another_group(
+    client: AsyncClient,
+) -> None:
     ada = await register(client, "ada")
     grace = await register(client, "grace")
     group_one = await create_group(client, ada["access_token"], "Um")
@@ -299,18 +395,21 @@ async def test_lock_is_visible_from_another_group(client: AsyncClient) -> None:
         )
     )
     oracle_id = await insert_catalog("Sol Ring")
-    created = rows(
+    [copy] = rows(
         await client.post(
             f"/api/v1/decks/{ada_deck['id']}/copies",
             json={"oracle_id": oracle_id, "quantity": 1},
             headers=bearer(ada["access_token"]),
         )
     )
-    copy_id = created[0]["id"]
+    locked = await client.post(
+        f"/api/v1/decks/{ada_deck['id']}/cards/{copy['id']}/lock",
+        headers=bearer(ada["access_token"]),
+    )
 
     blocked = await client.post(
         f"/api/v1/decks/{grace_deck['id']}/requests",
-        json={"card_copy_id": copy_id},
+        json={"card_copy_id": copy["id"]},
         headers=bearer(grace["access_token"]),
     )
     visible = rows(
@@ -319,19 +418,26 @@ async def test_lock_is_visible_from_another_group(client: AsyncClient) -> None:
             headers=bearer(grace["access_token"]),
         )
     )
+
+    assert locked.status_code == 200
+    assert obj(locked)["locked"] is True
+    assert blocked.status_code == 409
+    assert visible[0]["visibility"] == "in_deck"
+    deck_ref = visible[0]["deck"]
+    assert isinstance(deck_ref, dict)
+    assert deck_ref["owner"] == identity(ada)
+    assert visible[0]["locked"] is True
+
     await client.post(
-        f"/api/v1/decks/{ada_deck['id']}/cards/{copy_id}/unlock",
+        f"/api/v1/decks/{ada_deck['id']}/cards/{copy['id']}/unlock",
         headers=bearer(ada["access_token"]),
     )
     opened = await client.post(
         f"/api/v1/decks/{grace_deck['id']}/requests",
-        json={"card_copy_id": copy_id},
+        json={"card_copy_id": copy["id"]},
         headers=bearer(grace["access_token"]),
     )
 
-    assert blocked.status_code == 409
-    assert visible[0]["visibility"] == "in_use_elsewhere"
-    assert visible[0]["deck"] is None
     assert opened.status_code == 201
     assert obj(opened)["status"] == "pending_acceptance"
 
