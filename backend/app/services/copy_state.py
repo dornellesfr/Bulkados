@@ -69,6 +69,24 @@ async def release_after_requester_cancel(
     request: CardRequest,
 ) -> None:
     cancel_row(request)
+    await restore_after_request_ends(session, copy, request)
+
+
+async def release_after_holder_cancel(
+    session: AsyncSession,
+    copy: CardCopy,
+    request: CardRequest,
+) -> None:
+    """A casa ou o dono do deck de origem desiste do pedido; a cópia volta a circular."""
+    cancel_row(request)
+    await restore_after_request_ends(session, copy, request)
+
+
+async def restore_after_request_ends(
+    session: AsyncSession,
+    copy: CardCopy,
+    request: CardRequest,
+) -> None:
     if request.source is RequestSource.bulk:
         await remove_deck_card(session, copy.id)
         mark_available(copy)

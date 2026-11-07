@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Uuid, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.enums import RequestSource, RequestStatus
@@ -58,8 +58,17 @@ class CardRequest(CreatedAtMixin, Base):
         ForeignKey("decks.id", ondelete="CASCADE"),
         nullable=False,
     )
+    as_commander: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     status: Mapped[RequestStatus] = mapped_column(
         str_enum(RequestStatus, "request_status"),
         nullable=False,
+    )
+    requester_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    holder_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

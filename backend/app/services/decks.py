@@ -36,8 +36,6 @@ from app.schemas.decks import (
 )
 from app.services.access import (
     accepted_group_ids,
-    is_accepted,
-    require_accepted_group,
     require_deck_owner,
     require_deck_reader,
 )
@@ -51,34 +49,32 @@ from app.services.copies import (
 from app.services.copy_state import (
     cancel_open_requests,
     copies_in_decks,
-    is_linked,
     lock_copy,
     mark_available,
     open_requests_for,
     remove_deck_card,
 )
-from app.services.deck_identity import deck_commanders, ensure_fits_identity
+from app.services.deck_identity import (
+    deck_commanders,
+    ensure_commander_seat,
+    ensure_fits_identity,
+)
 
 
 async def create_deck(
     session: AsyncSession,
     user: User,
-    group_id: UUID,
     body: DeckCreate,
 ) -> DeckSummary:
-    await require_accepted_group(session, group_id, user.id)
-    deck = Deck(group_id=group_id, owner_id=user.id, name=body.name, format=body.format)
+    deck = Deck(owner_id=user.id, name=body.name, format=body.format)
     session.add(deck)
     await session.flush()
     return _summary(deck, [])
 
 
-async def list_decks(session: AsyncSession, user: User, group_id: UUID) -> list[DeckSummary]:
-    await require_accepted_group(session, group_id, user.id)
+async def list_decks(session: AsyncSession, user: User) -> list[DeckSummary]:
     rows = await session.scalars(
-        select(Deck)
-        .where(Deck.group_id == group_id, Deck.owner_id == user.id)
-        .order_by(Deck.created_at)
+        select(Deck).where(Deck.owner_id == user.id).order_by(Deck.created_at)
     )
     decks = list(rows)
     commanders = await deck_commanders(session, [deck.id for deck in decks])
@@ -161,15 +157,25 @@ async def take_copy(
 ) -> CopyRead:
     deck = await require_deck_owner(session, deck_id, user.id)
     copy = await lock_copy(session, body.card_copy_id)
-    if copy is None or not await is_linked(session, copy.id, deck.group_id):
+    if copy is None:
         raise DomainError(404, "Não encontramos essa carta.")
     if copy.state is not CopyState.available or copy.holder_id != user.id:
         raise DomainError(409, "Essa carta não está mais disponível.")
-    await ensure_fits_identity(session, deck, await _card_of(session, copy))
+    card = await _card_of(session, copy)
+    if body.as_commander:
+        await ensure_commander_seat(session, deck, copy, card)
+    else:
+        await ensure_fits_identity(session, deck, card)
     copy.state = CopyState.in_deck
-    copy.locked = True
+    copy.locked = False
     copy.deck_id = deck.id
-    session.add(DeckCard(deck_id=deck.id, card_copy_id=copy.id, role=DeckRole.main))
+    session.add(
+        DeckCard(
+            deck_id=deck.id,
+            card_copy_id=copy.id,
+            role=DeckRole.commander if body.as_commander else DeckRole.main,
+        )
+    )
     return await read_copy(session, copy)
 
 
@@ -180,14 +186,14 @@ async def create_deck_copies(
     body: DeckCopyCreate,
     prices: PriceProvider,
 ) -> list[CopyRead]:
-    """Põe a carta no deck: trava as cópias livres da casa do usuário e cadastra o resto."""
+    """Põe a carta no deck, sem travar: usa as cópias livres da casa e cadastra o resto."""
     deck = await require_deck_owner(session, deck_id, user.id)
     card = await catalog_card_by_oracle(session, body.oracle_id)
     await ensure_fits_identity(session, deck, card)
     taken = await _free_copies(session, user, deck, card, body.quantity)
     for copy in taken:
         copy.state = CopyState.in_deck
-        copy.locked = True
+        copy.locked = False
         copy.deck_id = deck.id
         session.add(DeckCard(deck_id=deck.id, card_copy_id=copy.id, role=DeckRole.main))
     reads = [await read_copy(session, copy) for copy in taken]
@@ -204,18 +210,17 @@ async def _free_copies(
     card: CatalogCard,
     quantity: int,
 ) -> list[CardCopy]:
+    del deck
     rows = await session.scalars(
         select(CardCopy)
-        .join(CardCopyGroup, CardCopyGroup.card_copy_id == CardCopy.id)
         .where(
             CardCopy.catalog_card_id == card.id,
             CardCopy.holder_id == user.id,
             CardCopy.state == CopyState.available,
-            CardCopyGroup.group_id == deck.group_id,
         )
         .order_by(CardCopy.created_at, CardCopy.id)
         .limit(quantity)
-        .with_for_update(of=CardCopy, skip_locked=True)
+        .with_for_update(skip_locked=True)
     )
     return list(rows)
 
@@ -229,8 +234,6 @@ async def _register_in_deck(
     prices: PriceProvider,
 ) -> list[CopyRead]:
     group_ids = await accepted_group_ids(session, user.id)
-    if deck.group_id not in group_ids:
-        group_ids.append(deck.group_id)
     cents, fetched_at = await quote_price(card, prices)
     copies: list[CardCopy] = []
     for _ in range(quantity):
@@ -241,7 +244,7 @@ async def _register_in_deck(
             price_cents=cents,
             price_fetched_at=fetched_at,
             state=CopyState.in_deck,
-            locked=True,
+            locked=False,
             deck_id=deck.id,
         )
         session.add(copy)
@@ -251,7 +254,10 @@ async def _register_in_deck(
         session.add(DeckCard(deck_id=deck.id, card_copy_id=copy.id, role=DeckRole.main))
         for group_id in group_ids:
             session.add(CardCopyGroup(card_copy_id=copy.id, group_id=group_id))
-    return [_copy_read(copy, card, user, user, "in_deck", deck, user) for copy in copies]
+    linked = sorted(group_ids, key=str)
+    return [
+        _copy_read(copy, card, user, user, "in_deck", deck, user, None, linked) for copy in copies
+    ]
 
 
 async def move_copy(
@@ -270,17 +276,16 @@ async def move_copy(
     target = await require_deck_owner(session, body.target_deck_id, user.id)
     if target.id == source.id:
         raise DomainError(409, "Essa carta já está neste deck.")
-    await ensure_fits_identity(session, target, await _card_of(session, copy))
-    if target.group_id != source.group_id:
-        if not await is_accepted(session, target.group_id, copy.holder_id):
-            raise DomainError(409, "A casa dessa carta não participa do grupo de destino.")
-        if not await is_linked(session, copy.id, target.group_id):
-            session.add(CardCopyGroup(card_copy_id=copy.id, group_id=target.group_id))
+    card = await _card_of(session, copy)
+    if body.as_commander:
+        await ensure_commander_seat(session, target, copy, card)
+    else:
+        await ensure_fits_identity(session, target, card)
     row = await session.get(DeckCard, copy.id)
     if row is None:
         raise DomainError(409, "Essa carta não está neste deck.")
     row.deck_id = target.id
-    row.role = DeckRole.main
+    row.role = DeckRole.commander if body.as_commander else DeckRole.main
     copy.deck_id = target.id
     return await read_copy(session, copy)
 
@@ -328,14 +333,22 @@ def _summary(deck: Deck, commanders: list[CatalogCard]) -> DeckSummary:
     )
     return DeckSummary(
         id=deck.id,
-        group_id=deck.group_id,
         name=deck.name,
         format=deck.format,
         created_at=deck.created_at,
         color_identity=identity,
         color_identity_name=identity_name(identity) if identity is not None else None,
         commanders=[
-            DeckCommanderRef(name_en=card.name_en, name_pt=card.name_pt, image_url=card.image_url)
+            DeckCommanderRef(
+                name_en=card.name_en,
+                name_pt=card.name_pt,
+                image_url=card.image_url,
+                can_be_commander=card.can_be_commander,
+                partner_kind=card.partner_kind,
+                type_line=card.type_line,
+                oracle_text=card.oracle_text,
+                keywords=list(card.keywords),
+            )
             for card in commanders
         ],
     )
@@ -408,11 +421,13 @@ async def _detail(session: AsyncSession, deck: Deck) -> DeckDetail:
                     image_url=card.image_url,
                     mana_cost=card.mana_cost,
                     type_line=card.type_line,
+                    oracle_text=card.oracle_text,
                     color_identity=list(card.color_identity),
                     is_basic=card.is_basic,
-                    commander_legal=card.commander_legal,
+                    keywords=list(card.keywords),
                     can_be_commander=card.can_be_commander,
                     partner_kind=card.partner_kind,
+                    commander_legal=card.commander_legal,
                 ),
                 open_request=open_requests.get(copy.id),
                 can_toggle_commander=can_toggle_commander(fact, facts),
@@ -432,7 +447,6 @@ async def _detail(session: AsyncSession, deck: Deck) -> DeckDetail:
     )
     return DeckDetail(
         id=deck.id,
-        group_id=deck.group_id,
         owner_id=deck.owner_id,
         name=deck.name,
         format=deck.format,

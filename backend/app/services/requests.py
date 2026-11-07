@@ -16,7 +16,7 @@ from app.domain.enums import (
     RequestStatus,
 )
 from app.models.catalog import CatalogCard
-from app.models.copy import CardCopy
+from app.models.copy import CardCopy, CardCopyGroup
 from app.models.deck import Deck, DeckCard
 from app.models.request import CardRequest
 from app.models.user import User
@@ -30,14 +30,19 @@ from app.schemas.requests import (
     RequestCreate,
     RequestRead,
 )
-from app.services.access import accepted_group_ids, require_accepted_group, require_deck_owner
+from app.services.access import (
+    accepted_group_ids,
+    require_accepted_group,
+    require_deck_owner,
+)
 from app.services.copy_state import (
     is_linked,
     lock_copy,
+    mark_available,
     release_after_requester_cancel,
     sync_holder_groups,
 )
-from app.services.deck_identity import ensure_fits_identity
+from app.services.deck_identity import ensure_commander_seat, ensure_fits_identity
 
 
 async def create_request(
@@ -48,24 +53,29 @@ async def create_request(
 ) -> RequestRead:
     deck = await require_deck_owner(session, deck_id, user.id)
     copy = await lock_copy(session, body.card_copy_id)
-    if copy is None or not await is_linked(session, copy.id, deck.group_id):
+    if copy is None:
         raise DomainError(404, "Não encontramos essa carta.")
     card = await session.get(CatalogCard, copy.catalog_card_id)
     if card is None:
         raise DomainError(404, "Não encontramos essa carta no catálogo.")
-    await ensure_fits_identity(session, deck, card)
+    group_id = await _request_group(session, user, copy, body.group_id)
+    if body.as_commander:
+        await ensure_commander_seat(session, deck, copy, card)
+    else:
+        await ensure_fits_identity(session, deck, card)
     if copy.state is CopyState.available:
         if copy.holder_id == user.id:
-            raise DomainError(409, "Essa carta não está mais disponível.")
+            raise DomainError(409, "Essa carta já está na sua casa.")
         request = CardRequest(
             card_copy_id=copy.id,
-            group_id=deck.group_id,
+            group_id=group_id,
             requester_id=user.id,
             holder_id=copy.holder_id,
             source=RequestSource.bulk,
             source_deck_id=None,
             target_deck_id=deck.id,
-            status=RequestStatus.awaiting_handoff,
+            as_commander=body.as_commander,
+            status=RequestStatus.pending_acceptance,
         )
         copy.state = CopyState.reserved
         copy.locked = True
@@ -77,12 +87,13 @@ async def create_request(
             raise DomainError(409, "Essa carta não está mais disponível.")
         request = CardRequest(
             card_copy_id=copy.id,
-            group_id=deck.group_id,
+            group_id=group_id,
             requester_id=user.id,
             holder_id=copy.holder_id,
             source=RequestSource.deck,
             source_deck_id=source.id,
             target_deck_id=deck.id,
+            as_commander=body.as_commander,
             status=RequestStatus.pending_acceptance,
         )
         copy.state = CopyState.reserved
@@ -99,39 +110,44 @@ async def create_request(
 
 
 async def accept_request(session: AsyncSession, user: User, request_id: UUID) -> RequestRead:
-    request, _copy = await _owned_source_request(session, user, request_id)
-    if (
-        request.status is not RequestStatus.pending_acceptance
-        or request.source is not RequestSource.deck
-    ):
+    request = await _get_request(session, request_id)
+    copy = await lock_copy(session, request.card_copy_id)
+    if copy is None:
+        raise DomainError(404, "Não encontramos essa carta.")
+    await _authorize_decision(session, user, request, copy)
+    if request.status is not RequestStatus.pending_acceptance:
         raise DomainError(409, "Esse pedido não pode ser aceito.")
     request.status = RequestStatus.awaiting_handoff
     return await _read(session, request.id)
 
 
 async def reject_request(session: AsyncSession, user: User, request_id: UUID) -> RequestRead:
-    request, copy = await _owned_source_request(session, user, request_id)
-    if (
-        request.status is not RequestStatus.pending_acceptance
-        or request.source is not RequestSource.deck
-    ):
+    request = await _get_request(session, request_id)
+    copy = await lock_copy(session, request.card_copy_id)
+    if copy is None:
+        raise DomainError(404, "Não encontramos essa carta.")
+    await _authorize_decision(session, user, request, copy)
+    if request.status is not RequestStatus.pending_acceptance:
         raise DomainError(409, "Esse pedido não pode ser recusado.")
-    if request.source_deck_id is None:
-        raise DomainError(409, "Esse pedido perdeu o deck de origem.")
     request.status = RequestStatus.rejected
     request.resolved_at = datetime.now(UTC)
-    copy.state = CopyState.in_deck
-    copy.locked = False
-    copy.deck_id = request.source_deck_id
-    existing = await session.get(DeckCard, copy.id)
-    if existing is None:
-        session.add(
-            DeckCard(
-                deck_id=request.source_deck_id,
-                card_copy_id=copy.id,
-                role=DeckRole.main,
+    if request.source is RequestSource.bulk:
+        mark_available(copy)
+    else:
+        if request.source_deck_id is None:
+            raise DomainError(409, "Esse pedido perdeu o deck de origem.")
+        copy.state = CopyState.in_deck
+        copy.locked = False
+        copy.deck_id = request.source_deck_id
+        existing = await session.get(DeckCard, copy.id)
+        if existing is None:
+            session.add(
+                DeckCard(
+                    deck_id=request.source_deck_id,
+                    card_copy_id=copy.id,
+                    role=DeckRole.main,
+                )
             )
-        )
     return await _read(session, request.id)
 
 
@@ -149,41 +165,28 @@ async def cancel_request(session: AsyncSession, user: User, request_id: UUID) ->
 
 
 async def confirm_request(session: AsyncSession, user: User, request_id: UUID) -> RequestRead:
+    """Cada lado confirma no encontro. A carta só muda de mão quando os dois confirmam."""
     request = await _get_request(session, request_id)
-    if request.requester_id != user.id:
-        raise DomainError(403, "Só quem pediu pode confirmar que recebeu.")
     if request.status is not RequestStatus.awaiting_handoff:
         raise DomainError(409, "Esse pedido não pode ser confirmado.")
-    target = await session.get(Deck, request.target_deck_id)
-    if target is None or target.owner_id != user.id or target.group_id != request.group_id:
-        raise DomainError(409, "O deck de destino não vale mais.")
+    if user.id not in {request.requester_id, request.holder_id}:
+        raise DomainError(403, "Só quem pediu ou quem está com a carta pode confirmar.")
     copy = await lock_copy(session, request.card_copy_id)
     if copy is None:
         raise DomainError(404, "Não encontramos essa carta.")
-    row = await session.get(DeckCard, copy.id)
-    if row is None:
-        session.add(DeckCard(deck_id=target.id, card_copy_id=copy.id, role=DeckRole.main))
-    else:
-        row.deck_id = target.id
-        row.role = DeckRole.main
-    copy.holder_id = user.id
-    copy.deck_id = target.id
-    copy.state = CopyState.in_deck
-    copy.locked = True
-    await sync_holder_groups(session, copy.id, await accepted_group_ids(session, user.id))
-    request.status = RequestStatus.completed
-    request.resolved_at = datetime.now(UTC)
+    now = datetime.now(UTC)
+    if user.id == request.requester_id and request.requester_confirmed_at is None:
+        request.requester_confirmed_at = now
+    if user.id == request.holder_id and request.holder_confirmed_at is None:
+        request.holder_confirmed_at = now
+    if request.requester_confirmed_at is not None and request.holder_confirmed_at is not None:
+        await _complete_request(session, request, copy)
     return await _read(session, request.id)
 
 
 async def handoffs(session: AsyncSession, user: User, group_id: UUID) -> HandoffLists:
     await require_accepted_group(session, group_id, user.id)
-    to_bring = await _list(
-        session,
-        group_id,
-        holder_id=user.id,
-        statuses={RequestStatus.awaiting_handoff},
-    )
+    to_bring = await _bring_list(session, user, group_id)
     to_receive = await _list(
         session,
         group_id,
@@ -196,13 +199,22 @@ async def handoffs(session: AsyncSession, user: User, group_id: UUID) -> Handoff
                 id=item.id,
                 source=item.source,
                 catalog=CatalogName(name_en=item.name_en, name_pt=item.name_pt),
+                status=item.status,
                 requester=PersonRef(
                     id=item.requester_id,
                     email=item.requester_email,
                     first_name=item.requester_first_name,
                     last_name=item.requester_last_name,
                 ),
+                holder=PersonRef(
+                    id=item.holder_id,
+                    email=item.holder_email,
+                    first_name=item.holder_first_name,
+                    last_name=item.holder_last_name,
+                ),
                 target_deck=DeckBrief(id=item.target_deck_id, name=item.target_deck_name),
+                requester_confirmed=item.requester_confirmed,
+                holder_confirmed=item.holder_confirmed,
             )
             for item in to_bring
         ],
@@ -219,25 +231,88 @@ async def handoffs(session: AsyncSession, user: User, group_id: UUID) -> Handoff
                     last_name=item.holder_last_name,
                 ),
                 target_deck=DeckBrief(id=item.target_deck_id, name=item.target_deck_name),
+                requester_confirmed=item.requester_confirmed,
+                holder_confirmed=item.holder_confirmed,
             )
             for item in to_receive
         ],
     )
 
 
-async def _owned_source_request(
+async def _request_group(
     session: AsyncSession,
     user: User,
-    request_id: UUID,
-) -> tuple[CardRequest, CardCopy]:
-    request = await _get_request(session, request_id)
-    copy = await lock_copy(session, request.card_copy_id)
-    if copy is None or request.source_deck_id is None:
-        raise DomainError(409, "Esse pedido não pode ser aceito.")
+    copy: CardCopy,
+    requested: UUID | None,
+) -> UUID:
+    if requested is not None:
+        await require_accepted_group(session, requested, user.id)
+        if not await is_linked(session, copy.id, requested):
+            raise DomainError(404, "Não encontramos essa carta nesse grupo.")
+        return requested
+    linked = set(
+        await session.scalars(
+            select(CardCopyGroup.group_id).where(CardCopyGroup.card_copy_id == copy.id)
+        )
+    )
+    accepted = set(await accepted_group_ids(session, user.id))
+    candidates = sorted(linked & accepted, key=str)
+    if not candidates:
+        raise DomainError(404, "Não encontramos essa carta num grupo seu.")
+    return candidates[0]
+
+
+async def _authorize_decision(
+    session: AsyncSession,
+    user: User,
+    request: CardRequest,
+    copy: CardCopy,
+) -> None:
+    if request.source is RequestSource.bulk:
+        if copy.holder_id != user.id:
+            raise DomainError(403, "Só quem está com a carta pode decidir este pedido.")
+        return
+    if request.source_deck_id is None:
+        raise DomainError(409, "Esse pedido perdeu o deck de origem.")
     source = await session.get(Deck, request.source_deck_id)
     if source is None or source.owner_id != user.id:
-        raise DomainError(403, "Só o dono do deck de origem pode fazer isso.")
-    return request, copy
+        raise DomainError(403, "Só o dono do deck de origem pode decidir este pedido.")
+
+
+async def _complete_request(
+    session: AsyncSession,
+    request: CardRequest,
+    copy: CardCopy,
+) -> None:
+    target = await session.get(Deck, request.target_deck_id)
+    if target is None or target.owner_id != request.requester_id:
+        raise DomainError(409, "O deck de destino não vale mais.")
+    card = await session.get(CatalogCard, copy.catalog_card_id)
+    if card is None:
+        raise DomainError(404, "Não encontramos essa carta no catálogo.")
+    if request.as_commander:
+        await ensure_commander_seat(session, target, copy, card)
+        role = DeckRole.commander
+    else:
+        await ensure_fits_identity(session, target, card)
+        role = DeckRole.main
+    row = await session.get(DeckCard, copy.id)
+    if row is None:
+        session.add(DeckCard(deck_id=target.id, card_copy_id=copy.id, role=role))
+    else:
+        row.deck_id = target.id
+        row.role = role
+    copy.holder_id = request.requester_id
+    copy.deck_id = target.id
+    copy.state = CopyState.in_deck
+    copy.locked = False
+    await sync_holder_groups(
+        session,
+        copy.id,
+        await accepted_group_ids(session, request.requester_id),
+    )
+    request.status = RequestStatus.completed
+    request.resolved_at = datetime.now(UTC)
 
 
 async def _get_request(session: AsyncSession, request_id: UUID) -> CardRequest:
@@ -252,6 +327,17 @@ async def _read(session: AsyncSession, request_id: UUID) -> RequestRead:
     if not rows:
         raise DomainError(404, "Não encontramos esse pedido.")
     return rows[0]
+
+
+async def _bring_list(session: AsyncSession, user: User, group_id: UUID) -> list[RequestRead]:
+    source_decks = select(Deck.id).where(Deck.owner_id == user.id)
+    rows = await _query(
+        session,
+        CardRequest.group_id == group_id,
+        CardRequest.status.in_(tuple(OPEN_REQUEST_STATUSES)),
+        ((CardRequest.holder_id == user.id) | CardRequest.source_deck_id.in_(source_decks)),
+    )
+    return rows
 
 
 async def _list(
@@ -304,7 +390,10 @@ async def _query(session: AsyncSession, *filters: ColumnElement[bool]) -> list[R
             source_deck_id=request.source_deck_id,
             target_deck_id=request.target_deck_id,
             target_deck_name=target.name,
+            as_commander=request.as_commander,
             status=request.status,
+            requester_confirmed=request.requester_confirmed_at is not None,
+            holder_confirmed=request.holder_confirmed_at is not None,
             name_en=card.name_en,
             name_pt=card.name_pt,
             created_at=request.created_at,

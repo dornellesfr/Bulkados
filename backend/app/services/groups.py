@@ -5,9 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.errors import DomainError
-from app.domain.enums import OPEN_REQUEST_STATUSES, CopyState, MembershipStatus
+from app.domain.enums import OPEN_REQUEST_STATUSES, MembershipStatus
 from app.models.copy import CardCopy, CardCopyGroup
-from app.models.deck import Deck, DeckCard
 from app.models.group import Group, GroupMember
 from app.models.request import CardRequest
 from app.models.user import User
@@ -23,14 +22,10 @@ from app.schemas.groups import (
 )
 from app.services.access import require_accepted_group
 from app.services.copy_state import (
-    cancel_open_requests,
     cancel_row,
-    copies_in_decks,
     lock_copy,
-    mark_available,
-    open_requests_for,
+    release_after_holder_cancel,
     release_after_requester_cancel,
-    remove_deck_card,
 )
 
 
@@ -188,76 +183,39 @@ async def leave_group(session: AsyncSession, user: User, group_id: UUID) -> None
     if leaver is None or leaver.status is not MembershipStatus.accepted:
         raise DomainError(404, "Não encontramos esse grupo.")
 
-    decks = list(
-        await session.scalars(select(Deck).where(Deck.group_id == group_id).with_for_update())
-    )
-    group_deck_ids = {deck.id for deck in decks}
-    leaver_decks = [deck for deck in decks if deck.owner_id == user.id]
-    leaver_deck_ids = {deck.id for deck in leaver_decks}
-
-    for copy in await copies_in_decks(session, leaver_deck_ids):
-        if copy.holder_id == user.id:
-            continue
-        await cancel_open_requests(session, copy.id)
-        await remove_deck_card(session, copy.id)
-        mark_available(copy)
-
     leaver_copies = await _held_copies(session, group_id, user.id)
-    for copy in leaver_copies:
-        opens = await open_requests_for(session, copy.id)
-        for request in opens:
-            source_here = (
-                request.source_deck_id is not None and request.source_deck_id in group_deck_ids
-            )
-            target_here = request.target_deck_id in group_deck_ids
-            if request.group_id == group_id or source_here or target_here:
-                cancel_row(request)
-        still_open = [request for request in opens if request.status in OPEN_REQUEST_STATUSES]
-        leaves_deck = copy.deck_id in group_deck_ids
-        if leaves_deck:
-            await remove_deck_card(session, copy.id)
-        if leaves_deck or (copy.deck_id is None and not still_open):
-            mark_available(copy)
-        elif copy.deck_id is not None and not still_open and copy.state is CopyState.reserved:
-            copy.state = CopyState.in_deck
-            copy.locked = False
-        await session.execute(
-            delete(CardCopyGroup).where(
-                CardCopyGroup.card_copy_id == copy.id,
-                CardCopyGroup.group_id == group_id,
-            )
-        )
-
-    outgoing = list(
+    open_requests = list(
         await session.scalars(
-            select(CardRequest).where(
+            select(CardRequest)
+            .where(
                 CardRequest.group_id == group_id,
-                CardRequest.requester_id == user.id,
                 CardRequest.status.in_(tuple(OPEN_REQUEST_STATUSES)),
+                or_(
+                    CardRequest.requester_id == user.id,
+                    CardRequest.holder_id == user.id,
+                ),
             )
+            .with_for_update()
         )
     )
-    for request in outgoing:
-        if request.status not in OPEN_REQUEST_STATUSES:
-            continue
+    for request in open_requests:
         requested = await lock_copy(session, request.card_copy_id)
         if requested is None:
             cancel_row(request)
             continue
-        await release_after_requester_cancel(session, requested, request)
+        if request.requester_id == user.id:
+            await release_after_requester_cancel(session, requested, request)
+        else:
+            await release_after_holder_cancel(session, requested, request)
 
-    if leaver_deck_ids:
-        await session.execute(delete(DeckCard).where(DeckCard.deck_id.in_(leaver_deck_ids)))
+    # O deck é da pessoa, não do grupo: sair não apaga nem trava as cartas do deck.
+    if leaver_copies:
         await session.execute(
-            delete(CardRequest).where(
-                or_(
-                    CardRequest.target_deck_id.in_(leaver_deck_ids),
-                    CardRequest.source_deck_id.in_(leaver_deck_ids),
-                )
+            delete(CardCopyGroup).where(
+                CardCopyGroup.card_copy_id.in_({copy.id for copy in leaver_copies}),
+                CardCopyGroup.group_id == group_id,
             )
         )
-        for deck in leaver_decks:
-            await session.delete(deck)
 
     await session.delete(leaver)
     await session.flush()
@@ -338,20 +296,24 @@ async def _held_copies(session: AsyncSession, group_id: UUID, user_id: UUID) -> 
 
 
 async def _delete_group(session: AsyncSession, group: Group) -> None:
-    decks = list(await session.scalars(select(Deck).where(Deck.group_id == group.id)))
-    deck_ids = {deck.id for deck in decks}
-    for copy in await copies_in_decks(session, deck_ids):
-        await cancel_open_requests(session, copy.id)
-        await remove_deck_card(session, copy.id)
-        mark_available(copy)
-    request_filter = [CardRequest.group_id == group.id]
-    if deck_ids:
-        request_filter.append(CardRequest.target_deck_id.in_(deck_ids))
-        request_filter.append(CardRequest.source_deck_id.in_(deck_ids))
-    await session.execute(delete(CardRequest).where(or_(*request_filter)))
-    if deck_ids:
-        await session.execute(delete(DeckCard).where(DeckCard.deck_id.in_(deck_ids)))
-        await session.execute(delete(Deck).where(Deck.id.in_(deck_ids)))
+    """Apaga o bulk. Os decks das pessoas continuam existindo, fora de qualquer grupo."""
+    open_requests = list(
+        await session.scalars(
+            select(CardRequest)
+            .where(
+                CardRequest.group_id == group.id,
+                CardRequest.status.in_(tuple(OPEN_REQUEST_STATUSES)),
+            )
+            .with_for_update()
+        )
+    )
+    for request in open_requests:
+        requested = await lock_copy(session, request.card_copy_id)
+        if requested is None:
+            cancel_row(request)
+            continue
+        await release_after_holder_cancel(session, requested, request)
+    await session.execute(delete(CardRequest).where(CardRequest.group_id == group.id))
     await session.execute(delete(CardCopyGroup).where(CardCopyGroup.group_id == group.id))
     await session.execute(delete(GroupMember).where(GroupMember.group_id == group.id))
     await session.delete(group)

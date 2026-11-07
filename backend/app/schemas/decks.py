@@ -38,12 +38,14 @@ class TakeCard(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     card_copy_id: UUID
+    as_commander: bool = False
 
 
 class MoveCard(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_deck_id: UUID
+    as_commander: bool = False
 
 
 class DeckCommanderRef(BaseModel):
@@ -52,13 +54,17 @@ class DeckCommanderRef(BaseModel):
     name_en: str
     name_pt: str | None
     image_url: str | None
+    can_be_commander: bool
+    partner_kind: PartnerKind | None
+    type_line: str
+    oracle_text: str
+    keywords: list[str]
 
 
 class DeckSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    group_id: UUID
     name: str
     format: DeckFormat
     created_at: datetime
@@ -69,8 +75,6 @@ class DeckSummary(BaseModel):
 
 class DeckCatalogRef(CatalogRef):
     commander_legal: CommanderLegal
-    can_be_commander: bool
-    partner_kind: PartnerKind | None
 
 
 class DeckCardRead(BaseModel):
@@ -98,7 +102,6 @@ class DeckDetail(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    group_id: UUID
     owner_id: UUID
     name: str
     format: DeckFormat

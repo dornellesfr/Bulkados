@@ -15,27 +15,46 @@ from app.schemas.decks import (
     TakeCard,
 )
 from app.services import decks as deck_service
+from app.services.access import require_accepted_group
 
 router = APIRouter(tags=["decks"])
 
 
-@router.post("/groups/{group_id}/decks", response_model=DeckSummary, status_code=201)
+@router.post("/decks", response_model=DeckSummary, status_code=201)
 async def create_deck(
+    body: DeckCreate,
+    user: CurrentUser,
+    session: DbSession,
+) -> DeckSummary:
+    return await deck_service.create_deck(session, user, body)
+
+
+@router.get("/decks", response_model=list[DeckSummary])
+async def list_decks(user: CurrentUser, session: DbSession) -> list[DeckSummary]:
+    return await deck_service.list_decks(session, user)
+
+
+@router.post("/groups/{group_id}/decks", response_model=DeckSummary, status_code=201)
+async def create_group_deck(
     group_id: UUID,
     body: DeckCreate,
     user: CurrentUser,
     session: DbSession,
 ) -> DeckSummary:
-    return await deck_service.create_deck(session, user, group_id, body)
+    """Compatibilidade: criar um deck dentro do bulk continua valendo, mas o deck é da pessoa."""
+    await require_accepted_group(session, group_id, user.id)
+    return await deck_service.create_deck(session, user, body)
 
 
 @router.get("/groups/{group_id}/decks", response_model=list[DeckSummary])
-async def list_decks(
+async def list_group_decks(
     group_id: UUID,
     user: CurrentUser,
     session: DbSession,
 ) -> list[DeckSummary]:
-    return await deck_service.list_decks(session, user, group_id)
+    """Compatibilidade: a lista é sempre a dos decks da pessoa, em qualquer bulk."""
+    await require_accepted_group(session, group_id, user.id)
+    return await deck_service.list_decks(session, user)
 
 
 @router.get("/decks/{deck_id}", response_model=DeckDetail)

@@ -39,6 +39,16 @@ async def share_copy(
     return await copy_service.share_copy(session, user, copy_id, body)
 
 
+@router.delete("/copies/{copy_id}/groups/{group_id}", response_model=CopyRead)
+async def unlink_copy(
+    copy_id: UUID,
+    group_id: UUID,
+    user: CurrentUser,
+    session: DbSession,
+) -> CopyRead:
+    return await copy_service.unlink_copy(session, user, copy_id, group_id)
+
+
 @router.delete("/copies/{copy_id}", status_code=204)
 async def remove_copy(copy_id: UUID, user: CurrentUser, session: DbSession) -> None:
     await copy_service.remove_copy(session, user, copy_id)
