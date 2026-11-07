@@ -14,11 +14,11 @@ No grupo, as pessoas se veem pelo e-mail.
 
 ## Grupos
 
-Um grupo é um bulk com nome. Qualquer membro cria um grupo e convida pelo e-mail. O convite aparece na tela inicial de quem foi convidado, com o nome do grupo e o e-mail de quem convidou. Aceitar entra no grupo. Recusar apaga o convite. Enquanto o convite está pendente, esse grupo não entra na lista de grupos da pessoa e ela não vê cartas, decks nem membros. Uma pessoa participa de vários grupos ao mesmo tempo.
+Um grupo é um bulk com nome. Qualquer membro cria um grupo e convida pelo e-mail. O convite aparece na tela inicial de quem foi convidado, com o nome do grupo e o e-mail de quem convidou. Aceitar entra no grupo. Recusar apaga o convite. Enquanto o convite está pendente, esse grupo não entra na lista de grupos da pessoa e ela não vê as cartas nem os membros daquele grupo. Uma pessoa participa de vários grupos ao mesmo tempo.
 
-Dentro do grupo, todo membro pode cadastrar cartas, montar decks e solicitar cartas. O deck é de uma pessoa, dentro daquele grupo. Outra pessoa não edita o deck dela.
+Dentro do grupo, todo membro pode cadastrar cartas, montar decks e solicitar cartas. O deck é de uma pessoa e não pertence ao grupo: ele pode reunir cartas de vários bulks. Outra pessoa não edita o deck dela.
 
-Quem criou o grupo dá o nome e pode renomear. Qualquer membro convida. Quem sai leva as cartas que estão na casa dela: elas saem do bulk e dos decks daquele grupo. As cartas que estão na casa de outras pessoas e estavam só no deck de quem saiu voltam para o bulk do grupo.
+Quem criou o grupo dá o nome e pode renomear. Qualquer membro convida. O deck não é apagado quando a pessoa sai do grupo: ele continua sendo dela, com as cartas que estiverem nele. Sair do grupo só desfaz o vínculo das cartas da própria casa com aquele bulk e cancela os pedidos abertos daquela pessoa naquele grupo.
 
 ## A carta física
 
@@ -26,7 +26,7 @@ O que circula no app é uma cópia física, não uma quantidade genérica. Duas 
 
 A casa é a pessoa com quem o papel está. No cadastro, a casa padrão é quem está cadastrando. Pode ser outro membro. Land básica também é cópia física; o preço dela é sempre zero.
 
-A mesma cópia pode estar em vários grupos ao mesmo tempo. Isso acontece quando a pessoa da casa participa de mais de um grupo e a cópia foi vinculada a esses grupos. Quem reserva ou coloca a cópia num deck primeiro a trava em todos os grupos em que ela aparece. Existe um deck por vez para aquela cópia. Nos outros grupos ela continua visível como travada, e ninguém solicita.
+A mesma cópia pode estar em vários grupos ao mesmo tempo. Isso acontece quando a pessoa da casa participa de mais de um grupo e a cópia foi vinculada a esses grupos. Quem reserva a cópia trava ela em todos os grupos até o pedido acabar. Colocar no deck não trava. Existe um deck por vez para aquela cópia. Nos outros grupos ela continua visível, e ninguém solicita se estiver travada.
 
 Uma cópia livre na casa de uma pessoa pode ser compartilhada com outro grupo dessa pessoa. Entrar num grupo novo não publica sozinho as cartas que já estavam em casa.
 
@@ -69,70 +69,70 @@ Lands básicas contam nas 100 cartas, custam zero e podem repetir o nome.
 Duas regras bloqueiam, porque o resto do deck depende delas:
 
 - só uma carta que pode ser comandante vira comandante: criatura lendária, planeswalker ou carta cujo texto diz que pode ser o comandante. Dois comandantes só valem como uma dupla válida: Partner, Partner with (cada um citando o outro), Friends forever, Choose a Background com um Background, ou Doctor com Doctor's companion. A tela oferece "Marcar comandante" só quando a escolha fica válida, e a API recusa o resto;
-- a identidade de cor do deck é a união das cores dos comandantes. Com comandante, o app recusa a carta cuja identidade sai dela: ao adicionar, pegar do bulk, mover de outro deck ou solicitar. Sem comandante, não há limite. Carta incolor cabe em qualquer deck.
+- a identidade de cor do deck é a união das cores dos comandantes. Com comandante, o app recusa a carta cuja identidade sai dela: ao adicionar, selecionar do bulk, mover de outro deck ou solicitar. Sem comandante, não há limite. Carta incolor cabe em qualquer deck.
 
 A identidade aparece com os ícones das cores e o nome da combinação (Azorius, Bant, Mono-verde, Incolor, Cinco cores). Incolor é só do deck cujo comandante não tem cor, como Karn ou Ullamog. Marcar comandante também respeita a identidade: se o deck tem carta fora da identidade que os comandantes passariam a ter, o app recusa e diz quais cartas atrapalham. Tirar todos os comandantes sempre é possível, e sem comandante não há limite.
 
 ## Como a carta entra no deck
 
-Há quatro caminhos. Em todos, a trava vale para todos os grupos daquela cópia.
+Há quatro caminhos. A trava não acompanha a entrada no deck. Ela só existe quando o dono trava na tela do deck, ou enquanto um pedido deixa a cópia reservada. Reservada, a trava vale para todos os grupos daquela cópia.
 
 ### Já está com você, livre no bulk
 
-Se a casa da cópia é você e ela está livre no bulk, você coloca no seu deck na hora. Ela sai do monte disponível e nasce travada.
+Se a casa da cópia é você e ela está livre no bulk, Selecionar abre na hora a escolha: criar um deck novo ou adicionar a um que já existe. No deck existente dá para marcar a carta como comandante, se a cadeira ainda couber (um comandante, ou uma dupla válida de Partner e afins). Ela sai do monte disponível e fica destravada.
 
 ### Adicionando no seu deck
 
-Você pesquisa a carta e adiciona ao deck. Se você já tem uma cópia livre dela na sua casa, no bulk deste grupo, o app trava essa cópia no deck. Se não tem, cadastra a cópia já no deck. A casa é você e ela nasce travada. Nos outros grupos seus ela aparece travada. A busca dentro do deck só sugere cartas que cabem na identidade de cor dele.
+Você pesquisa a carta e escolhe: livre no bulk, nos grupos marcados, ou direto num deck seu. Se você já tem uma cópia livre dela na sua casa, no bulk deste grupo, o app coloca essa cópia no deck, sem travar. Se não tem, cadastra a cópia já no deck, destravada, na sua casa. A busca dentro do deck só sugere cartas que cabem na identidade de cor dele.
 
 ### No bulk, na casa de outra pessoa
 
-Você escolhe o deck de destino e solicita. Não há aceite de quem está com a carta: quem pediu primeiro ficou com a vez. A cópia trava na hora, em todos os grupos, e entra na lista do que a outra pessoa leva no próximo encontro daquele grupo.
+Você escolhe o deck de destino e seleciona. Como a carta está em outra casa, isso vira uma solicitação, que fica pendente até quem está com a carta aceitar. A cópia fica reservada na hora, em todos os grupos, para ninguém pedir junto; para os outros, o botão passa a Indisponível.
 
-A carta só entra no seu deck quando você confirma que ela está na sua mão. Nessa confirmação a casa passa a ser você e a cópia continua travada. Até lá ela segue fisicamente com quem já estava, fora do seu deck.
+Aceito o pedido, a carta entra na lista do que a outra pessoa leva no próximo encontro daquele grupo. Ela só entra no seu deck quando os dois confirmam no encontro, cada um pelo seu lado: quem está com o papel confirma a entrega e quem pediu confirma o recebimento. Aí a casa passa a ser você, ela entra no deck e destrava. Até lá ela segue fisicamente com quem já estava, fora do seu deck.
 
-Se a pessoa não achou o papel, ela combina com quem pediu. Quem pediu cancela. A cópia destrava. Quem está com ela remove do bulk se o papel não existe mais.
-
-Quem pediu também cancela por qualquer outro motivo, enquanto a carta não entrou no deck. A cópia volta ao bulk, livre.
+Se a pessoa não achou o papel, ela recusa. Quem pediu também cancela por qualquer outro motivo, enquanto a carta não entrou no deck. A cópia volta ao bulk, livre. Quem está com ela remove o registro se o papel não existe mais.
 
 ### No deck de outra pessoa, destravada
 
 Carta travada no deck de alguém não pode ser pedida. Carta destravada pode.
 
-Você solicita para um deck seu, no grupo em que está vendo a carta. A cópia trava na hora em todos os grupos, para ninguém pedir junto. A pessoa do deck aceita ou recusa no app.
+Você solicita para um deck seu, em qualquer bulk. A cópia fica reservada na hora em todos os grupos, para ninguém pedir junto. O dono do deck de origem aceita ou recusa no app, na tela do deck.
 
-Se recusar, a cópia volta ao deck dela, destravada. Se você cancelar, o mesmo. Se aceitar, a carta entra na lista do que ela leva quando vocês se encontrarem naquele grupo. Você confirma só com o papel na mão. Aí ela sai do deck antigo, entra no seu, a casa passa a ser você e ela fica travada.
+Se recusar, a cópia volta ao deck dela, destravada. Se você cancelar, o mesmo. Se aceitar, a carta entra na lista do que ela leva quando vocês se encontrarem naquele grupo. A entrega se fecha quando os dois confirmam no encontro. Aí ela sai do deck antigo, entra no seu, a casa passa a ser você e ela fica destravada.
 
 ## Trava
 
-A trava é da cópia, não do grupo.
+A trava é da cópia, não do grupo. Só se trava e destrava na tela do deck em que a carta está. O bulk não oferece essa ação.
 
-- Livre no bulk: qualquer membro de um grupo em que ela aparece pode pegar, se for a casa, ou solicitar, se for outra casa.
-- Reservada por um pedido: ninguém mais solicita, em grupo nenhum. Só quem pediu cancela.
-- No seu deck, travada: ninguém solicita. Você pode destravar.
+- Livre no bulk: Selecionar. Se é a sua casa, entra direto no deck; se é outra, vira uma solicitação.
+- Reservada por um pedido: ninguém mais solicita, em grupo nenhum. O botão fica Indisponível. Só quem pediu cancela.
+- No seu deck, travada: ninguém solicita. Você pode destravar na tela do deck.
 - No seu deck, destravada: outros membros podem solicitar, por qualquer grupo em que a cópia aparece.
 
-Colocar no deck, seja na hora ou depois da confirmação, deixa a cópia travada. Destravar é uma ação sua, com o deck já em mãos e sem pedido pendente.
+Selecionar, cadastrar direto no deck ou confirmar o recebimento não trava. Travar é uma ação sua, com o deck aberto e sem pedido pendente.
+
+No bulk, o estado aparece por texto e cor: Livre, Reservada, Indisponível e Travada. O filtro de estado começa em Livre e esconde o resto; Todas mostra tudo; Reservadas mostra as cartas que já estão num deck, inclusive as travadas. Carta travada leva um cadeado e o botão fica Indisponível, mas o cartão continua abrindo o detalhe. A busca é por nome, e ainda dá para filtrar por cor e por custo de mana.
 
 ## Listas do encontro
 
 Cada lista é de um grupo.
 
-- **Levar:** pedidos aceitos (ou pedidos de bulk, que não precisam de aceite) das cartas que estão na sua casa e ainda não foram confirmadas por quem pediu.
-- **Receber:** pedidos que você abriu e que ainda dependem de aceite ou da carta na mão.
+- **Levar:** pedidos em que a carta está na sua casa ou no seu deck. Inclui os pedidos que ainda esperam a sua decisão de aceitar ou recusar e os que você já aceitou e precisa levar.
+- **Receber:** pedidos que você abriu e que ainda esperam aceite ou a confirmação da entrega.
 
-A confirmação é sempre de quem pediu, e só com a carta na mão. Quem leva não confirma a entrega no app.
+A entrega só se completa quando os dois lados confirmam no encontro: quem leva confirma a entrega e quem pediu confirma o recebimento. Enquanto só um confirmou, o pedido continua aberto.
 
 ## O que a dona da carta faz com ela
 
 Sem pedido pendente, e com a cópia já no seu deck:
 
-- move para outro deck seu, no mesmo grupo ou em outro grupo seu, na hora;
+- move para outro deck seu, em qualquer bulk, na hora;
 - devolve ao bulk, na casa dela, livre, na hora;
-- trava ou destrava.
+- trava ou destrava, só na tela desse deck.
 
-Com a cópia livre no bulk, a pessoa da casa remove o registro quando o papel saiu de circulação. Remover tira a cópia de todos os grupos.
+No bulk, o menu da carta tira ou inclui um grupo, ou remove o registro de todos quando o papel saiu de circulação. Remover o registro só com a cópia livre. Tirar o último grupo não vale: isso é remover o registro. Tirar o vínculo de uma carta que está num deck também não vale, até devolver ao bulk.
 
 ## O que fica de fora
 
-O app não cobra, não calcula frete e não organiza partida. Fora a escolha do comandante e a identidade de cor, não bloqueia deck ilegal: mostra o aviso e a pessoa decide. Não exige que quem está com a carta no bulk aceite o pedido.
+O app não cobra, não calcula frete e não organiza partida. Fora a escolha do comandante, a identidade de cor e o aceite de quem está com a carta, não bloqueia deck ilegal: mostra o aviso e a pessoa decide.

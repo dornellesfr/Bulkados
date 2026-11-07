@@ -92,13 +92,13 @@ Uma cópia tem no máximo um pedido aberto. Índice único parcial em `card_copy
 
 `card_copy_id`, `group_id`. A cópia aparece nesses grupos. A trava não é por linha: é a da cópia.
 
-O detentor da casa é membro `accepted` de cada grupo vinculado. Ao sair do grupo, apagam-se os vínculos daquele grupo para toda cópia cuja casa é quem saiu.
+O detentor da casa é membro `accepted` de cada grupo vinculado. Ao sair do grupo, apagam-se os vínculos daquele grupo para toda cópia cuja casa é quem saiu; a cópia continua no deck dela e nos outros grupos.
 
 ### decks
 
-`id`, `group_id`, `owner_id`, `name`, `format` (`commander_10`, `commander_100`, `commander_200`, `commander_500`, `competitive`), `created_at`.
+`id`, `owner_id`, `name`, `format` (`commander_10`, `commander_100`, `commander_200`, `commander_500`, `competitive`), `created_at`.
 
-O dono é membro `accepted` do grupo. Único dono.
+O deck é da pessoa, não do grupo. Um deck pode reunir cartas de vários bulks e continua existindo quando a pessoa sai de um grupo, entra em outro ou quando o grupo é apagado. Único dono.
 
 ### deck_cards
 
@@ -108,28 +108,29 @@ A cópia em `deck_cards` é a que está de fato no deck. Pedido ainda não confi
 
 ### requests
 
-`id`, `card_copy_id`, `group_id`, `requester_id`, `holder_id`, `source` (`bulk`, `deck`), `source_deck_id` nulo, `target_deck_id`, `status` (`pending_acceptance`, `awaiting_handoff`, `completed`, `cancelled`, `rejected`), `created_at`, `resolved_at`.
+`id`, `card_copy_id`, `group_id`, `requester_id`, `holder_id`, `source` (`bulk`, `deck`), `source_deck_id` nulo, `target_deck_id`, `as_commander`, `status` (`pending_acceptance`, `awaiting_handoff`, `completed`, `cancelled`, `rejected`), `requester_confirmed_at`, `holder_confirmed_at`, `created_at`, `resolved_at`.
 
-Pedido de bulk nasce `awaiting_handoff`. Pedido de deck nasce `pending_acceptance`.
+Pedidos de bulk e de deck nascem `pending_acceptance`. No bulk, quem decide é a casa física da carta; num pedido que saiu de um deck, quem decide é o dono do deck de origem.
 
-`target_deck_id` é deck do solicitante no mesmo `group_id`.
+`target_deck_id` é um deck do solicitante, em qualquer grupo dele. O pedido guarda o `group_id` em que foi aberto para aparecer nas listas de encontro daquele grupo.
 
 ## Estados da cópia
 
 ```mermaid
 stateDiagram-v2
     [*] --> Disponivel: cadastra no bulk
-    [*] --> NoDeckTravada: cadastra direto no deck
-    Disponivel --> NoDeckTravada: a casa pega na hora
-    Disponivel --> AguardandoEntrega: outro pede no bulk
+    [*] --> NoDeckDestravada: cadastra direto no deck
+    Disponivel --> NoDeckDestravada: a casa seleciona
+    Disponivel --> AguardandoAceite: outro pede no bulk
     NoDeckDestravada --> AguardandoAceite: outro pede no deck
-    AguardandoAceite --> AguardandoEntrega: dono aceita
-    AguardandoAceite --> NoDeckDestravada: dono recusa ou quem pediu cancela
-    AguardandoEntrega --> NoDeckTravada: quem pediu confirma com a carta na mão
-    AguardandoEntrega --> Disponivel: quem pediu cancela um pedido de bulk
-    AguardandoEntrega --> NoDeckDestravada: quem pediu cancela um pedido de deck
-    NoDeckTravada --> NoDeckDestravada: dono destrava
-    NoDeckDestravada --> NoDeckTravada: dono trava
+    AguardandoAceite --> AguardandoEntrega: quem decide aceita
+    AguardandoAceite --> Disponivel: recusa ou cancela um pedido de bulk
+    AguardandoAceite --> NoDeckDestravada: recusa ou cancela um pedido de deck
+    AguardandoEntrega --> NoDeckDestravada: os dois confirmam no encontro
+    AguardandoEntrega --> Disponivel: cancelam um pedido de bulk
+    AguardandoEntrega --> NoDeckDestravada: cancelam um pedido de deck
+    NoDeckTravada --> NoDeckDestravada: dono destrava na tela do deck
+    NoDeckDestravada --> NoDeckTravada: dono trava na tela do deck
     NoDeckTravada --> Disponivel: dono devolve ao bulk
     NoDeckDestravada --> Disponivel: dono devolve ao bulk
     Disponivel --> [*]: a casa remove a cópia
@@ -137,7 +138,7 @@ stateDiagram-v2
 
 Transições concorrentes usam `SELECT … FOR UPDATE` na cópia. A segunda solicitação da mesma cópia responde 409.
 
-Reservar trava a cópia em todos os `card_copy_groups`. Não existe trava por grupo.
+Reservar trava a cópia em todos os `card_copy_groups`. Não existe trava por grupo. Reservar não é a mesma coisa que o dono travar o deck: a reserva vem de um pedido aberto; a trava é uma decisão do dono.
 
 ## Regras de negócio
 
@@ -150,11 +151,11 @@ Reservar trava a cópia em todos os `card_copy_groups`. Não existe trava por gr
 - Aceitar e recusar só a própria convidada, usando esse `id`. Recusar apaga o convite. Antes do aceite, a pessoa não lê o grupo.
 - Renomear só o dono.
 - Sair:
-  - apaga os decks de quem saiu naquele grupo;
-  - cartas desses decks cuja casa é outra pessoa voltam para `available`, sem deck, destravadas, e pedidos abertos delas nesse grupo são cancelados;
-  - cartas cuja casa é quem saiu perdem o vínculo com o grupo, saem de qualquer deck do grupo e têm pedidos abertos cancelados; continuam nos outros grupos em que já estavam vinculadas;
+  - o deck não é do grupo: decks de quem saiu continuam existindo, com as cartas que estiverem neles;
+  - cartas cuja casa é quem saiu perdem só o vínculo com aquele grupo; continuam nos outros grupos e no deck em que estiverem;
+  - pedidos abertos naquele grupo em que quem sai é solicitante ou casa são cancelados; na volta, a cópia fica `available` ou volta ao deck de origem, conforme a fonte;
   - se quem saiu é o dono e ainda há membros, o membro `accepted` mais antigo vira dono;
-  - se era o último membro, o grupo é apagado, junto com decks, convites e vínculos.
+  - se era o último membro, o grupo é apagado, junto com convites e vínculos; os decks das pessoas continuam.
 
 Não há expulsão. Quem fica com o papel é quem sai, pelos vínculos acima.
 
@@ -170,27 +171,29 @@ Cópia nasce `available`.
 
 ### Adicionar no deck
 
-Corpo: `oracle_id` e `quantity`; o deck vem da URL. Primeiro trava, no deck, as cópias `available` dessa carta cuja casa é quem adiciona e que estão vinculadas ao grupo do deck, da mais antiga para a mais nova. Se faltar, cadastra o resto já no deck. Todas ficam `in_deck`, `locked` verdadeiro, com `role` `main`. As cadastradas aqui também vinculam os outros grupos da casa, onde aparecem travadas, e ficam livres de novo se forem devolvidas ao bulk. Recusa com 409 se a identidade de cor da carta não cabe na do deck.
+Corpo: `oracle_id` e `quantity`; o deck vem da URL. Primeiro coloca no deck, sem travar, as cópias `available` dessa carta cuja casa é quem adiciona, da mais antiga para a mais nova. Se faltar, cadastra o resto já no deck. Todas ficam `in_deck`, `locked` falso, com `role` `main`. As cadastradas aqui também vinculam os grupos da casa. Ficam livres de novo se forem devolvidas ao bulk. Recusa com 409 se a identidade de cor da carta não cabe na do deck.
 
 ### Compartilhar com outro grupo
 
-Cópia `available`, casa igual ao usuário, grupo destino em que ele é membro e a cópia ainda não está. Cria o vínculo. Cópia reservada ou em deck não ganha vínculo novo disponível; em deck, o vínculo pode ser criado e a cópia segue travada naquele grupo também.
+Cópia `available`, casa igual ao usuário, grupo destino em que ele é membro e a cópia ainda não está. Cria o vínculo. Cópia reservada não ganha vínculo. Cópia em deck pode ganhar o vínculo e continua no mesmo estado de trava.
 
-### Pegar na hora
+`DELETE /copies/{id}/groups/{group_id}` tira o vínculo de um grupo. Só a casa. Reservada responde 409. O último grupo responde 409: apagar de todos é `DELETE /copies/{id}`. Se a cópia está num deck, responde 409 até ser devolvida ao bulk.
 
-Cópia `available`, `holder_id` igual ao usuário, vinculada ao grupo do deck destino, deck destino do próprio usuário. Vai para `in_deck`, travada, `role` `main`. Sem linha de pedido.
+### Selecionar
+
+Cópia `available`, `holder_id` igual ao usuário. Vai para `in_deck`, destravada. Sem linha de pedido. A rota continua `POST /decks/{id}/take`, com `card_copy_id` e `as_commander` opcional. Sem `as_commander`, o `role` é `main` e a identidade de cor segue a dos comandantes atuais. Com `as_commander`, o `role` é `commander` e vale a mesma recusa de marcar comandante: carta inelegível, dupla inválida, mais de dois, ou carta do deck que ficaria fora da identidade nova. Nesse caso a identidade antiga não barra um parceiro de outra cor.
 
 ### Solicitar a partir do bulk
 
-Cópia `available`, vinculada ao grupo, casa diferente do solicitante, deck destino do solicitante nesse grupo. Cria pedido `source=bulk`, `awaiting_handoff`. Cópia vai para `reserved`, travada.
+Cópia `available`, vinculada ao grupo, casa diferente do solicitante, deck destino do solicitante. Cria pedido `source=bulk`, `pending_acceptance`. Cópia vai para `reserved`, travada.
+
+Quem está com a carta aceita: status `awaiting_handoff`. Recusa: status `rejected`, cópia volta a `available`, sem deck, destravada. Quem pediu cancela enquanto o pedido está aberto, com a mesma volta.
 
 ### Solicitar a partir de um deck
 
-Cópia `in_deck`, `locked` falso, vinculada ao grupo, deck atual de outra pessoa, deck destino do solicitante nesse grupo. Cria pedido `source=deck`, `pending_acceptance`, guarda `source_deck_id`. Cópia vai para `reserved`, travada. A linha em `deck_cards` permanece até a confirmação.
+Cópia `in_deck`, `locked` falso, vinculada ao grupo, deck atual de outra pessoa, deck destino do solicitante. Cria pedido `source=deck`, `pending_acceptance`, guarda `source_deck_id`. Cópia vai para `reserved`, travada. A linha em `deck_cards` permanece até a confirmação.
 
 Dono do deck de origem aceita: status `awaiting_handoff`. Recusa: status `rejected`, cópia volta a `in_deck` destravada no deck de origem.
-
-Quem está com a carta no bulk não aceita nem recusa.
 
 ### Cancelar
 
@@ -201,18 +204,20 @@ Só o solicitante, com pedido `pending_acceptance` ou `awaiting_handoff`.
 
 ### Confirmar recebimento
 
-Só o solicitante, só em `awaiting_handoff`. Essa ação afirma que o papel está na mão.
+Cada lado confirma no encontro, só em `awaiting_handoff`: o solicitante confirma o recebimento e o detentor atual confirma a entrega. Cada confirmação grava `requester_confirmed_at` ou `holder_confirmed_at`. O pedido só muda de mão quando os dois estão preenchidos.
+
+Na confirmação final:
 
 - `holder_id` passa a ser o solicitante;
 - some do deck de origem, se havia;
-- entra no `target_deck_id` como `main`, `in_deck`, travada;
+- entra no `target_deck_id` como `main` ou `commander` conforme `as_commander`, `in_deck`, destravada;
 - vínculos de grupo cuja casa nova não é membro são apagados;
-- garante vínculo com o grupo do deck destino e com os outros grupos da casa nova, todos enxergando a cópia travada;
+- garante vínculo com o grupo do deck destino e com os outros grupos da casa nova;
 - pedido `completed`.
 
 ### Mover entre decks seus
 
-Cópia `in_deck` num deck do usuário, sem pedido aberto, deck destino também do usuário. Troca `deck_id` e a linha de `deck_cards`. Se o destino é de outro grupo, a casa precisa ser membro desse grupo e a cópia passa a ter vínculo com ele. Comandante no deck antigo volta a `main` no destino; a pessoa marca comandante de novo se quiser.
+Cópia `in_deck` num deck do usuário, sem pedido aberto, deck destino também do usuário, em qualquer bulk. Troca `deck_id` e a linha de `deck_cards`; os vínculos de grupo não mudam. O corpo leva `target_deck_id` e `as_commander` opcional. Sem ele, comandante no deck antigo volta a `main` no destino. Com ele, entra como `commander` se a cadeira no destino for válida, pelas mesmas regras de marcar comandante.
 
 ### Devolver ao bulk
 
@@ -220,7 +225,7 @@ Cópia `in_deck` de um deck do usuário, sem pedido aberto. Sai do deck, `availa
 
 ### Travar e destravar
 
-Só o dono do deck, cópia `in_deck`, sem pedido aberto. Destravar permite solicitação. Travar impede.
+Só o dono do deck, cópia `in_deck`, sem pedido aberto, e só por essas rotas. O bulk não trava nem destrava. Destravar permite solicitação. Travar impede.
 
 ### Remover cópia
 
@@ -232,7 +237,7 @@ O dono do deck define quais cartas do deck têm `role=commander`. O backend recu
 
 Cada carta do deck traz `can_toggle_commander`: marcar (ou tirar) aquela carta deixaria o conjunto de comandantes válido? A tela usa isso para oferecer o botão.
 
-A identidade de cor do deck é a união da dos comandantes e vem em `color_identity` (na ordem branco, azul, preto, vermelho, verde; lista vazia é incolor; nulo é deck sem comandante) e `color_identity_name`. Ao adicionar, pegar do bulk, mover ou solicitar uma carta para um deck com comandante, a carta cuja identidade sai da do deck é recusada com 409.
+A identidade de cor do deck é a união da dos comandantes e vem em `color_identity` (na ordem branco, azul, preto, vermelho, verde; lista vazia é incolor; nulo é deck sem comandante) e `color_identity_name`. Ao adicionar, selecionar do bulk, mover ou solicitar uma carta para um deck com comandante, a carta cuja identidade sai da do deck é recusada com 409.
 
 ## Avisos do deck
 
@@ -303,44 +308,47 @@ Grupos:
 Cartas:
 
 - `POST /groups/{id}/copies` cadastra no bulk daquele grupo e pode incluir outros grupos no corpo
-- `GET /groups/{id}/copies` lista as cópias vinculadas, com estado visível: livre, reservada, no deck (e-mail do deck se o deck é deste grupo), ou em uso em outro grupo quando o deck está num grupo que quem vê não participa
-- `POST /copies/{id}/groups` `{ group_id }` compartilha
-- `DELETE /copies/{id}` remove
+- `GET /groups/{id}/copies` lista as cópias vinculadas, com estado visível: livre, reservada (pedido aberto), no deck (com o deck e o dono, quando o dono do deck compartilha algum grupo com quem vê), ou em uso em outro grupo quando o deck está com alguém que não participa de nenhum grupo de quem vê
+- `POST /copies/{id}/groups` `{ group_id }` inclui num grupo
+- `DELETE /copies/{id}/groups/{group_id}` tira de um grupo
+- `DELETE /copies/{id}` remove de todos
 - `POST /copies/{id}/refresh-price`
 
 Decks:
 
-- `POST /groups/{id}/decks` `{ name, format }`
-- `GET /groups/{id}/decks` decks do usuário nesse grupo
+- `POST /decks` `{ name, format }` cria um deck da pessoa
+- `GET /decks` lista os decks da pessoa, em qualquer bulk
+- `POST /groups/{id}/decks` e `GET /groups/{id}/decks` continuam valendo por compatibilidade, mas operam nos decks globais da pessoa
 - `GET /decks/{id}` cartas, comandantes, contagens, preços e avisos
 - `PATCH /decks/{id}` nome ou formato
 - `DELETE /decks/{id}` devolve as cartas ao bulk, livres, na casa atual
 - `POST /decks/{id}/commanders` `{ card_copy_ids }` substitui o conjunto de comandantes; 409 se a escolha não é válida
-- `POST /decks/{id}/take` `{ card_copy_id }` pegar na hora o que já está na sua casa
+- `POST /decks/{id}/take` `{ card_copy_id, as_commander }` selecionar o que já está na sua casa, sem travar. `as_commander` entra na cadeira de comandante
 - `POST /decks/{id}/copies` cadastra direto no deck
-- `POST /decks/{id}/cards/{card_copy_id}/move` `{ target_deck_id }`
+- `POST /decks/{id}/cards/{card_copy_id}/move` `{ target_deck_id, as_commander }`
 - `POST /decks/{id}/cards/{card_copy_id}/return`
 - `POST /decks/{id}/cards/{card_copy_id}/lock`
 - `POST /decks/{id}/cards/{card_copy_id}/unlock`
 
 Pedidos:
 
-- `POST /decks/{id}/requests` `{ card_copy_id }` escolhe bulk ou deck pelo estado da cópia
+- `POST /decks/{id}/requests` `{ card_copy_id, group_id?, as_commander? }` escolhe bulk ou deck pelo estado da cópia; aceita pedido de bulk ou de deck
 - `POST /requests/{id}/accept`
 - `POST /requests/{id}/reject`
 - `POST /requests/{id}/cancel`
 - `POST /requests/{id}/confirm`
 - `GET /groups/{id}/handoffs` duas listas, `to_bring` e `to_receive`, só daquele grupo
 
-`to_bring` são pedidos `awaiting_handoff` em que `holder_id` é o usuário. `to_receive` são pedidos abertos em que `requester_id` é o usuário, com o status para a interface mostrar “esperando aceite” ou “esperando a carta”.
+`to_bring` são pedidos abertos em que o usuário é a casa atual ou o dono do deck de origem: entram tanto os que ainda esperam a decisão de aceitar/recusar quanto os já aceitos que precisam ser levados. `to_receive` são pedidos abertos em que `requester_id` é o usuário, com o status para a interface mostrar “esperando aceite” ou “esperando a carta”.
 
 ### Formato das respostas
 
 É o formato que o frontend valida (`frontend/src/lib/api`). Os testes de `tests/integration/test_contract.py` travam as chaves; mudar um lado sem o outro quebra a tela.
 
-- Cópia (`POST` e `GET /groups/{id}/copies`, `refresh-price`, `take`, `move`, `return`, `lock`, `unlock`): `id`, `catalog` (`oracle_id`, `name_en`, `name_pt`, `image_url`, `mana_cost`, `type_line`, `color_identity`, `is_basic`), `holder` e `added_by` (`id`, `email`, `first_name`, `last_name`), `price_cents`, `price_fetched_at`, `state`, `locked`, `visibility`, `deck` (`id`, `name`, `owner`) ou nulo, `open_request` (`id`, `status`, `source`, `requester`) ou nulo.
-- Deck (`GET` e `PATCH /decks/{id}`): `id`, `group_id`, `name`, `format`, `owner_id`, `color_identity`, `color_identity_name`, `card_count`, `main_price_cents`, `commander_price_cents`, `warnings` e `cards`. Cada carta traz `card_copy_id`, `role`, `locked`, `price_cents`, `holder`, `catalog` (os campos acima mais `commander_legal`, `can_be_commander`, `partner_kind`), `open_request` e `can_toggle_commander`. O resumo do deck (`GET /groups/{id}/decks`) traz `color_identity`, `color_identity_name` e `commanders` (cada um com `name_en`, `name_pt` e `image_url`).
-- Encontros: `to_bring` com `id`, `source`, `catalog` (`name_en`, `name_pt`), `requester` e `target_deck` (`id`, `name`); `to_receive` com `id`, `source`, `catalog`, `status`, `holder` e `target_deck`.
+- Cópia (`POST` e `GET /groups/{id}/copies`, `refresh-price`, `take`, `move`, `return`, `lock`, `unlock`, incluir e tirar grupo): `id`, `catalog` (`oracle_id`, `name_en`, `name_pt`, `image_url`, `mana_cost`, `type_line`, `oracle_text`, `color_identity`, `is_basic`, `keywords`, `can_be_commander`, `partner_kind`), `holder` e `added_by` (`id`, `email`, `first_name`, `last_name`), `price_cents`, `price_fetched_at`, `state`, `locked`, `visibility`, `deck` (`id`, `name`, `owner`) ou nulo, `open_request` (`id`, `status`, `source`, `requester`) ou nulo, `group_ids`.
+- Deck (`GET` e `PATCH /decks/{id}`): `id`, `name`, `format`, `owner_id`, `color_identity`, `color_identity_name`, `card_count`, `main_price_cents`, `commander_price_cents`, `warnings` e `cards`. Cada carta traz `card_copy_id`, `role`, `locked`, `price_cents`, `holder`, `catalog` (os campos da cópia mais `commander_legal`), `open_request` e `can_toggle_commander`. O resumo do deck (`GET /decks` e o alias por grupo) traz `color_identity`, `color_identity_name` e `commanders` (cada um com `name_en`, `name_pt`, `image_url`, `can_be_commander`, `partner_kind`, `type_line`, `oracle_text` e `keywords`).
+- Pedido: `id`, `card_copy_id`, `group_id`, `requester_id`, `requester_email`, `requester_first_name`, `requester_last_name`, `holder_id`, `holder_email`, `holder_first_name`, `holder_last_name`, `source`, `source_deck_id`, `target_deck_id`, `target_deck_name`, `as_commander`, `status`, `requester_confirmed`, `holder_confirmed`, `name_en`, `name_pt`, `created_at`, `resolved_at`.
+- Encontros: `to_bring` com `id`, `source`, `catalog` (`name_en`, `name_pt`), `status`, `requester`, `holder`, `target_deck` (`id`, `name`), `requester_confirmed` e `holder_confirmed`; `to_receive` com `id`, `source`, `catalog`, `status`, `holder`, `target_deck`, `requester_confirmed` e `holder_confirmed`.
 
 ## Ordem de implementação
 
@@ -348,12 +356,12 @@ Pedidos:
 2. Grupos, convite, aceite, saída e transferência de dono.
 3. Busca no Scryfall e cache `catalog_cards`, com `PriceProvider` devolvendo vazio.
 4. Cópias no bulk, vínculo com vários grupos, land básica a preço zero.
-5. Decks, pegar na hora, cadastro direto, comandantes e avisos, incluindo o orçamento do Commander 10.
+5. Decks, selecionar, cadastro direto, comandantes e avisos, incluindo o orçamento do Commander 10.
 6. Pedidos, trava global, listas do encontro, confirmar e cancelar.
-7. Mover, devolver, travar, destravar, compartilhar, remover, sair do grupo com cartas.
+7. Mover, devolver, travar, destravar, compartilhar, remover, sair do grupo preservando os decks.
 8. Adaptador de preço da LigaMagic, quando houver acesso permitido. Até lá o aviso `missing_price` é o comportamento esperado.
 
-Cada etapa entra com teste do caso feliz e do conflito que a regra cita (e-mail repetido, convite sem aceite, segunda solicitação 409, trava vista por outro grupo, saída levando só a carta da própria casa, Commander 10 estourado gera aviso e persiste o deck).
+Cada etapa entra com teste do caso feliz e do conflito que a regra cita (e-mail repetido, convite sem aceite, segunda solicitação 409, trava vista por outro grupo, saída preservando o deck, Commander 10 estourado gera aviso e persiste o deck).
 
 ## Fora deste serviço
 
