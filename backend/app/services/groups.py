@@ -1,0 +1,319 @@
+from uuid import UUID
+
+from sqlalchemy import delete, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
+
+from app.core.errors import DomainError
+from app.domain.enums import OPEN_REQUEST_STATUSES, MembershipStatus
+from app.models.copy import CardCopy, CardCopyGroup
+from app.models.group import Group, GroupMember
+from app.models.request import CardRequest
+from app.models.user import User
+from app.schemas.groups import (
+    GroupCreate,
+    GroupSummary,
+    GroupUpdate,
+    InvitationCreate,
+    InvitationGroup,
+    InvitationPerson,
+    InvitationRead,
+    MemberRead,
+)
+from app.services.access import require_accepted_group
+from app.services.copy_state import (
+    cancel_row,
+    lock_copy,
+    release_after_holder_cancel,
+    release_after_requester_cancel,
+)
+
+
+async def create_group(session: AsyncSession, user: User, body: GroupCreate) -> GroupSummary:
+    group = Group(name=body.name, owner_id=user.id)
+    session.add(group)
+    await session.flush()
+    membership = GroupMember(
+        group_id=group.id,
+        user_id=user.id,
+        status=MembershipStatus.accepted,
+        invited_by=None,
+    )
+    session.add(membership)
+    await session.flush()
+    return _summary(group, user.email, membership)
+
+
+async def list_groups(session: AsyncSession, user: User) -> list[GroupSummary]:
+    owner = aliased(User)
+    rows = (
+        await session.execute(
+            select(Group, GroupMember, owner)
+            .join(GroupMember, GroupMember.group_id == Group.id)
+            .join(owner, owner.id == Group.owner_id)
+            .where(
+                GroupMember.user_id == user.id,
+                GroupMember.status == MembershipStatus.accepted,
+            )
+            .order_by(Group.created_at)
+        )
+    ).all()
+    return [_summary(group, owner_user.email, membership) for group, membership, owner_user in rows]
+
+
+async def rename_group(
+    session: AsyncSession,
+    user: User,
+    group_id: UUID,
+    body: GroupUpdate,
+) -> GroupSummary:
+    group = await require_accepted_group(session, group_id, user.id)
+    if group.owner_id != user.id:
+        raise DomainError(403, "Só quem criou o grupo pode fazer isso.")
+    group.name = body.name
+    owner = await session.get(User, group.owner_id)
+    membership = await _membership(session, group_id, user.id)
+    if owner is None or membership is None:
+        raise DomainError(404, "Não encontramos esse grupo.")
+    return _summary(group, owner.email, membership)
+
+
+async def invite(
+    session: AsyncSession,
+    user: User,
+    group_id: UUID,
+    body: InvitationCreate,
+) -> MemberRead:
+    await require_accepted_group(session, group_id, user.id)
+    target = await session.scalar(select(User).where(User.email == body.email))
+    if target is None:
+        raise DomainError(404, "Não há conta com esse e-mail.")
+    existing = await session.scalar(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == target.id,
+        )
+    )
+    if existing is not None:
+        raise DomainError(409, "Essa pessoa já foi convidada ou já está no grupo.")
+    membership = GroupMember(
+        group_id=group_id,
+        user_id=target.id,
+        status=MembershipStatus.invited,
+        invited_by=user.id,
+    )
+    session.add(membership)
+    await session.flush()
+    return _member(membership, target)
+
+
+async def list_invitations(session: AsyncSession, user: User) -> list[InvitationRead]:
+    inviter = aliased(User)
+    rows = (
+        await session.execute(
+            select(GroupMember, Group, inviter)
+            .join(Group, Group.id == GroupMember.group_id)
+            .join(inviter, inviter.id == GroupMember.invited_by)
+            .where(
+                GroupMember.user_id == user.id,
+                GroupMember.status == MembershipStatus.invited,
+            )
+            .order_by(GroupMember.created_at)
+        )
+    ).all()
+    return [
+        InvitationRead(
+            id=membership.id,
+            group=InvitationGroup(id=group.id, name=group.name),
+            invited_by=InvitationPerson(
+                id=inviter_user.id,
+                email=inviter_user.email,
+                first_name=inviter_user.first_name,
+                last_name=inviter_user.last_name,
+            ),
+            created_at=membership.created_at,
+        )
+        for membership, group, inviter_user in rows
+    ]
+
+
+async def accept_invitation(
+    session: AsyncSession,
+    user: User,
+    invitation_id: UUID,
+) -> MemberRead:
+    membership = await _own_invitation(session, user, invitation_id)
+    if membership.status is not MembershipStatus.invited:
+        raise DomainError(409, "Esse convite não está mais pendente.")
+    membership.status = MembershipStatus.accepted
+    return _member(membership, user)
+
+
+async def decline_invitation(session: AsyncSession, user: User, invitation_id: UUID) -> None:
+    membership = await _own_invitation(session, user, invitation_id)
+    if membership.status is not MembershipStatus.invited:
+        raise DomainError(409, "Esse convite não está mais pendente.")
+    await session.delete(membership)
+
+
+async def list_members(session: AsyncSession, user: User, group_id: UUID) -> list[MemberRead]:
+    await require_accepted_group(session, group_id, user.id)
+    member_user = aliased(User)
+    rows = (
+        await session.execute(
+            select(GroupMember, member_user)
+            .join(member_user, member_user.id == GroupMember.user_id)
+            .where(GroupMember.group_id == group_id)
+            .order_by(GroupMember.created_at)
+        )
+    ).all()
+    return [_member(membership, member) for membership, member in rows]
+
+
+async def leave_group(session: AsyncSession, user: User, group_id: UUID) -> None:
+    group = await session.get(Group, group_id, with_for_update=True)
+    if group is None:
+        raise DomainError(404, "Não encontramos esse grupo.")
+    memberships = list(
+        await session.scalars(
+            select(GroupMember).where(GroupMember.group_id == group_id).with_for_update()
+        )
+    )
+    leaver = next((item for item in memberships if item.user_id == user.id), None)
+    if leaver is None or leaver.status is not MembershipStatus.accepted:
+        raise DomainError(404, "Não encontramos esse grupo.")
+
+    leaver_copies = await _held_copies(session, group_id, user.id)
+    open_requests = list(
+        await session.scalars(
+            select(CardRequest)
+            .where(
+                CardRequest.group_id == group_id,
+                CardRequest.status.in_(tuple(OPEN_REQUEST_STATUSES)),
+                or_(
+                    CardRequest.requester_id == user.id,
+                    CardRequest.holder_id == user.id,
+                ),
+            )
+            .with_for_update()
+        )
+    )
+    for request in open_requests:
+        requested = await lock_copy(session, request.card_copy_id)
+        if requested is None:
+            cancel_row(request)
+            continue
+        if request.requester_id == user.id:
+            await release_after_requester_cancel(session, requested, request)
+        else:
+            await release_after_holder_cancel(session, requested, request)
+
+    # O deck é da pessoa, não do grupo: sair não apaga nem trava as cartas do deck.
+    if leaver_copies:
+        await session.execute(
+            delete(CardCopyGroup).where(
+                CardCopyGroup.card_copy_id.in_({copy.id for copy in leaver_copies}),
+                CardCopyGroup.group_id == group_id,
+            )
+        )
+
+    await session.delete(leaver)
+    await session.flush()
+
+    remaining = [
+        item
+        for item in memberships
+        if item.user_id != user.id and item.status is MembershipStatus.accepted
+    ]
+    if not remaining:
+        await _delete_group(session, group)
+        return
+    if group.owner_id == user.id:
+        remaining.sort(key=_membership_age)
+        group.owner_id = remaining[0].user_id
+
+
+def _summary(group: Group, owner_email: str, membership: GroupMember) -> GroupSummary:
+    return GroupSummary(
+        id=group.id,
+        name=group.name,
+        owner_id=group.owner_id,
+        owner_email=owner_email,
+        membership_status=membership.status,
+        invitation_id=membership.id,
+        created_at=group.created_at,
+    )
+
+
+def _member(membership: GroupMember, user: User) -> MemberRead:
+    return MemberRead(
+        invitation_id=membership.id,
+        user_id=user.id,
+        email=user.email,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        status=membership.status,
+        created_at=membership.created_at,
+    )
+
+
+def _membership_age(membership: GroupMember) -> tuple[object, str]:
+    return (membership.created_at, str(membership.user_id))
+
+
+async def _membership(
+    session: AsyncSession,
+    group_id: UUID,
+    user_id: UUID,
+) -> GroupMember | None:
+    return await session.scalar(
+        select(GroupMember).where(
+            GroupMember.group_id == group_id,
+            GroupMember.user_id == user_id,
+        )
+    )
+
+
+async def _own_invitation(
+    session: AsyncSession,
+    user: User,
+    invitation_id: UUID,
+) -> GroupMember:
+    membership = await session.get(GroupMember, invitation_id)
+    if membership is None or membership.user_id != user.id:
+        raise DomainError(404, "Não encontramos esse convite.")
+    return membership
+
+
+async def _held_copies(session: AsyncSession, group_id: UUID, user_id: UUID) -> list[CardCopy]:
+    rows = await session.scalars(
+        select(CardCopy)
+        .join(CardCopyGroup, CardCopyGroup.card_copy_id == CardCopy.id)
+        .where(CardCopyGroup.group_id == group_id, CardCopy.holder_id == user_id)
+        .with_for_update()
+    )
+    return list(rows)
+
+
+async def _delete_group(session: AsyncSession, group: Group) -> None:
+    """Apaga o bulk. Os decks das pessoas continuam existindo, fora de qualquer grupo."""
+    open_requests = list(
+        await session.scalars(
+            select(CardRequest)
+            .where(
+                CardRequest.group_id == group.id,
+                CardRequest.status.in_(tuple(OPEN_REQUEST_STATUSES)),
+            )
+            .with_for_update()
+        )
+    )
+    for request in open_requests:
+        requested = await lock_copy(session, request.card_copy_id)
+        if requested is None:
+            cancel_row(request)
+            continue
+        await release_after_holder_cancel(session, requested, request)
+    await session.execute(delete(CardRequest).where(CardRequest.group_id == group.id))
+    await session.execute(delete(CardCopyGroup).where(CardCopyGroup.group_id == group.id))
+    await session.execute(delete(GroupMember).where(GroupMember.group_id == group.id))
+    await session.delete(group)
