@@ -1,8 +1,8 @@
 import { queryOptions } from '@tanstack/react-query'
 import { z } from 'zod'
 
-import { ApiError, apiRequest } from '@/lib/api/client'
-import { groupNameSchema, nickSchema } from '@/lib/api/schemas'
+import { apiRequest } from '@/lib/api/client'
+import { emailSchema, groupNameSchema } from '@/lib/api/schemas'
 
 export const groupSchema = z.object({
   id: z.string(),
@@ -13,7 +13,9 @@ export const groupSchema = z.object({
 
 export const memberSchema = z.object({
   user_id: z.string(),
-  nick: z.string(),
+  email: z.string(),
+  first_name: z.string(),
+  last_name: z.string(),
   status: z.enum(['invited', 'accepted']),
   created_at: z.string(),
 })
@@ -26,7 +28,9 @@ export const invitationSchema = z.object({
   }),
   invited_by: z.object({
     id: z.string(),
-    nick: z.string(),
+    email: z.string(),
+    first_name: z.string(),
+    last_name: z.string(),
   }),
   created_at: z.string(),
 })
@@ -36,7 +40,7 @@ export const groupNameInputSchema = z.object({
 })
 
 export const inviteInputSchema = z.object({
-  nick: nickSchema,
+  email: emailSchema,
 })
 
 export type Group = z.infer<typeof groupSchema>
@@ -87,7 +91,7 @@ export async function inviteMember(groupId: string, input: InviteInput) {
   return apiRequest(`/groups/${groupId}/invitations`, z.unknown(), {
     method: 'POST',
     conflict: 'invitation',
-    notFoundMessage: 'Não há conta com esse nick.',
+    notFoundMessage: 'Não há conta com esse e-mail.',
     body: JSON.stringify(payload),
   })
 }
@@ -99,17 +103,7 @@ export async function leaveGroup(groupId: string) {
 }
 
 export async function listInvitations(signal?: AbortSignal) {
-  try {
-    return await apiRequest('/invitations', z.array(invitationSchema), {
-      signal,
-    })
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
-      return []
-    }
-
-    throw error
-  }
+  return apiRequest('/invitations', z.array(invitationSchema), { signal })
 }
 
 export async function acceptInvitation(invitationId: string) {

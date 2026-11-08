@@ -33,17 +33,7 @@ export function HomePage() {
       />
       <InvitationList invitations={invitations} />
       {groups.length === 0 ? (
-        <div className="flex flex-col items-start gap-3">
-          <p>Você ainda não está em um grupo.</p>
-          <Button
-            type="button"
-            onClick={() => {
-              setCreateOpen(true)
-            }}
-          >
-            Criar grupo
-          </Button>
-        </div>
+        <p>Você ainda não está em um grupo.</p>
       ) : (
         <ul className="flex flex-col gap-3">
           {groups.map((group) => (

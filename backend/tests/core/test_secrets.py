@@ -13,8 +13,13 @@ def test_service_role_is_hidden_from_settings_repr() -> None:
     assert "super-secret-role" not in repr(settings)
 
 
-def test_register_rejects_invalid_nick() -> None:
+def test_register_rejects_invalid_email() -> None:
     from app.schemas.auth import RegisterRequest
 
     with pytest.raises(ValidationError):
-        RegisterRequest(email="ada@example.com", password="password123", nick="A")
+        RegisterRequest(
+            email="not-an-email",
+            password="password123",
+            first_name="Ada",
+            last_name="Lovelace",
+        )

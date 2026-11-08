@@ -34,11 +34,33 @@ export const copySchema = z.object({
     })
     .nullable(),
   open_request: openRequestSchema.nullable(),
+  group_ids: z.array(z.string()),
 })
+
+export const bulkViewSchema = z.enum(['cartas', 'lista'])
+
+export const bulkEstadoSchema = z.enum(['todas', 'available', 'in_deck'])
+
+export const colorCodeSchema = z.enum(['W', 'U', 'B', 'R', 'G', 'C'])
+
+export const manaBucketSchema = z.enum([
+  '0',
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7+',
+])
+
+const colorCodes = new Set<string>(colorCodeSchema.options)
 
 export const bulkSearchSchema = z.object({
   q: z.string().trim().optional(),
-  estado: copyVisibilitySchema.optional(),
+  estado: bulkEstadoSchema.optional(),
+  cores: z.union([z.string(), z.array(z.string())]).optional(),
+  cmc: manaBucketSchema.optional(),
   destino: z.string().optional(),
 })
 
@@ -51,10 +73,16 @@ export const createCopiesInputSchema = z.object({
 
 export type Copy = z.infer<typeof copySchema>
 export type CopyVisibility = z.infer<typeof copyVisibilitySchema>
+export type BulkEstado = z.infer<typeof bulkEstadoSchema>
+export type BulkView = z.infer<typeof bulkViewSchema>
+export type ColorCode = z.infer<typeof colorCodeSchema>
+export type ManaBucket = z.infer<typeof manaBucketSchema>
 export type CreateCopiesInput = z.infer<typeof createCopiesInputSchema>
 export type BulkSearch = {
   q?: string
-  estado?: CopyVisibility
+  estado?: BulkEstado
+  cores?: Array<ColorCode>
+  cmc?: ManaBucket
   destino?: string
 }
 
@@ -70,6 +98,19 @@ export function parseBulkSearch(search: Record<string, unknown>): BulkSearch {
     next.estado = parsed.estado
   }
 
+  const rawCores = parsed.cores ?? []
+  const cores = (typeof rawCores === 'string' ? rawCores.split(',') : rawCores)
+    .map((color) => color.trim().toUpperCase())
+    .filter((color): color is ColorCode => colorCodes.has(color))
+
+  if (cores.length > 0) {
+    next.cores = [...new Set(cores)]
+  }
+
+  if (parsed.cmc) {
+    next.cmc = parsed.cmc
+  }
+
   if (parsed.destino) {
     next.destino = parsed.destino
   }
@@ -77,11 +118,63 @@ export function parseBulkSearch(search: Record<string, unknown>): BulkSearch {
   return next
 }
 
+export function manaValue(cost: string | null): number {
+  if (!cost) {
+    return 0
+  }
+
+  const face = cost.split('//')[0] ?? cost
+  const symbols = face.match(/\{[^}]+\}/g) ?? []
+
+  return symbols.reduce((total, symbol) => {
+    const inner = symbol.slice(1, -1).toUpperCase()
+
+    if (inner === 'X') {
+      return total
+    }
+
+    const numeric = Number.parseInt(inner, 10)
+
+    if (!Number.isNaN(numeric)) {
+      return total + numeric
+    }
+
+    return total + 1
+  }, 0)
+}
+
+export function manaBucket(cost: string | null): ManaBucket {
+  const value = manaValue(cost)
+
+  return value >= 7 ? '7+' : (String(value) as ManaBucket)
+}
+
 export function filterCopies(copies: Array<Copy>, search: BulkSearch) {
   const needle = search.q?.toLocaleLowerCase('pt-BR')
+  const estado = search.estado ?? 'available'
+  const colors = search.cores ?? []
 
   return copies.filter((copy) => {
-    if (search.estado && copy.visibility !== search.estado) {
+    if (estado === 'available' && copy.visibility !== 'available') {
+      return false
+    }
+
+    if (estado === 'in_deck' && copy.visibility !== 'in_deck') {
+      return false
+    }
+
+    if (colors.length > 0) {
+      const identity =
+        copy.catalog.color_identity.length === 0
+          ? ['C']
+          : copy.catalog.color_identity
+
+      if (!colors.every((color) => identity.includes(color))) {
+        return false
+      }
+    }
+
+    if (search.cmc && manaBucket(copy.catalog.mana_cost) !== search.cmc) {
       return false
     }
 
@@ -114,9 +207,15 @@ export async function createCopies(groupId: string, input: CreateCopiesInput) {
 }
 
 export async function shareCopy(copyId: string, groupId: string) {
-  return apiRequest(`/copies/${copyId}/groups`, z.unknown(), {
+  return apiRequest(`/copies/${copyId}/groups`, copySchema, {
     method: 'POST',
     body: JSON.stringify({ group_id: groupId }),
+  })
+}
+
+export async function unlinkCopy(copyId: string, groupId: string) {
+  return apiRequest(`/copies/${copyId}/groups/${groupId}`, copySchema, {
+    method: 'DELETE',
   })
 }
 

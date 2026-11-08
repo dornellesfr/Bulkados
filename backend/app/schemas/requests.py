@@ -11,6 +11,8 @@ class RequestCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     card_copy_id: UUID
+    group_id: UUID | None = None
+    as_commander: bool = False
 
 
 class RequestRead(BaseModel):
@@ -20,14 +22,21 @@ class RequestRead(BaseModel):
     card_copy_id: UUID
     group_id: UUID
     requester_id: UUID
-    requester_nick: str
+    requester_email: str
+    requester_first_name: str
+    requester_last_name: str
     holder_id: UUID
-    holder_nick: str
+    holder_email: str
+    holder_first_name: str
+    holder_last_name: str
     source: RequestSource
     source_deck_id: UUID | None
     target_deck_id: UUID
     target_deck_name: str
+    as_commander: bool
     status: RequestStatus
+    requester_confirmed: bool
+    holder_confirmed: bool
     name_en: str
     name_pt: str | None
     created_at: datetime
@@ -54,8 +63,12 @@ class HandoffBring(BaseModel):
     id: UUID
     source: RequestSource
     catalog: CatalogName
+    status: RequestStatus
     requester: PersonRef
+    holder: PersonRef
     target_deck: DeckBrief
+    requester_confirmed: bool
+    holder_confirmed: bool
 
 
 class HandoffReceive(BaseModel):
@@ -67,6 +80,8 @@ class HandoffReceive(BaseModel):
     status: RequestStatus
     holder: PersonRef
     target_deck: DeckBrief
+    requester_confirmed: bool
+    holder_confirmed: bool
 
 
 class HandoffLists(BaseModel):

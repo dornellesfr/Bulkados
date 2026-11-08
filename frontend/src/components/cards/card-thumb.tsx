@@ -34,9 +34,13 @@ function previewPosition({ anchor, box }: Hover) {
 export function CardThumb({
   url,
   className,
+  alt = '',
+  preview = true,
 }: {
   url: string | null
   className?: string
+  alt?: string
+  preview?: boolean
 }) {
   const [hover, setHover] = useState<Hover | null>(null)
   const previewRef = useRef<HTMLImageElement>(null)
@@ -49,7 +53,11 @@ export function CardThumb({
 
   if (!url) {
     return (
-      <div className={cn('h-14 w-10 shrink-0 rounded bg-muted', className)} />
+      <div
+        className={cn('h-14 w-10 shrink-0 rounded bg-muted', className)}
+        role={alt ? 'img' : undefined}
+        aria-label={alt || undefined}
+      />
     )
   }
 
@@ -59,22 +67,30 @@ export function CardThumb({
     <>
       <img
         src={url}
-        alt=""
+        alt={alt}
         loading="lazy"
         decoding="async"
         className={cn('h-14 w-10 shrink-0 rounded object-cover', className)}
-        onMouseEnter={(event) => {
-          const thumb = event.currentTarget
-          const anchor = thumb.getBoundingClientRect()
-          const dialogBox = thumb.closest('dialog')?.firstElementChild
-          setHover({
-            anchor,
-            box: dialogBox ? dialogBox.getBoundingClientRect() : anchor,
-          })
-        }}
-        onMouseLeave={() => {
-          setHover(null)
-        }}
+        onMouseEnter={
+          preview
+            ? (event) => {
+                const thumb = event.currentTarget
+                const anchor = thumb.getBoundingClientRect()
+                const dialogBox = thumb.closest('dialog')?.firstElementChild
+                setHover({
+                  anchor,
+                  box: dialogBox ? dialogBox.getBoundingClientRect() : anchor,
+                })
+              }
+            : undefined
+        }
+        onMouseLeave={
+          preview
+            ? () => {
+                setHover(null)
+              }
+            : undefined
+        }
       />
       {position ? (
         // popover: vai para a camada mais alta do navegador, acima até do diálogo aberto.

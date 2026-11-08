@@ -1,5 +1,6 @@
 import logging
 import time
+from dataclasses import dataclass
 from uuid import UUID
 
 import httpx
@@ -16,7 +17,29 @@ _jwks_fetched_at = 0.0
 _jwks_by_kid: dict[str, PyJWK] = {}
 
 
+@dataclass(frozen=True, slots=True)
+class AccessTokenClaims:
+    """O que o token verificado diz sobre a pessoa, sem confiar em campos não assinados."""
+
+    user_id: UUID
+    email: str | None
+    user_metadata: dict[str, object]
+
+
 async def user_id_from_access_token(token: str, settings: Settings) -> UUID:
+    return (await access_token_claims(token, settings)).user_id
+
+
+async def access_token_claims(token: str, settings: Settings) -> AccessTokenClaims:
+    decoded = await _decode(token, settings)
+    return AccessTokenClaims(
+        user_id=_subject(decoded),
+        email=_email(decoded),
+        user_metadata=_metadata(decoded),
+    )
+
+
+async def _decode(token: str, settings: Settings) -> dict[str, object]:
     algorithm = _algorithm(token)
     issuer = _issuer(settings)
     try:
@@ -46,7 +69,9 @@ async def user_id_from_access_token(token: str, settings: Settings) -> UUID:
             raise InvalidTokenError
     except jwt.PyJWTError as exc:
         raise InvalidTokenError from exc
-    return _subject(decoded)
+    if not isinstance(decoded, dict):
+        raise InvalidTokenError
+    return {key: value for key, value in decoded.items() if isinstance(key, str)}
 
 
 def _algorithm(token: str) -> str:
@@ -79,6 +104,24 @@ def _subject(decoded: object) -> UUID:
         return UUID(subject)
     except ValueError as exc:
         raise InvalidTokenError from exc
+
+
+def _email(decoded: dict[str, object]) -> str | None:
+    email = decoded.get("email")
+    if not isinstance(email, str) or not email.strip():
+        return None
+    return email.strip()
+
+
+def _metadata(decoded: dict[str, object]) -> dict[str, object]:
+    raw = decoded.get("user_metadata")
+    if not isinstance(raw, dict):
+        return {}
+    metadata: dict[str, object] = {}
+    for key, value in raw.items():
+        if isinstance(key, str):
+            metadata[key] = value
+    return metadata
 
 
 async def _signing_key(token: str, settings: Settings) -> PyJWK:

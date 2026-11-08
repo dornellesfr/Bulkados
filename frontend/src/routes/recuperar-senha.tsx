@@ -1,7 +1,7 @@
 import { redirect, createFileRoute } from '@tanstack/react-router'
 
+import { AuthFrame } from '@/components/auth/auth-frame'
 import { ForgotPasswordForm } from '@/components/auth/forgot-password-form'
-import { PageHeader } from '@/components/layout/page-header'
 import { hasSession } from '@/lib/auth/session'
 
 export const Route = createFileRoute('/recuperar-senha')({
@@ -15,12 +15,8 @@ export const Route = createFileRoute('/recuperar-senha')({
 
 function RecoverPage() {
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-6">
-      <PageHeader
-        title="Recuperar senha"
-        description="Informe o nick ou o e-mail da conta."
-      />
+    <AuthFrame title="Recuperar senha" description="Informe o e-mail da conta.">
       <ForgotPasswordForm />
-    </div>
+    </AuthFrame>
   )
 }

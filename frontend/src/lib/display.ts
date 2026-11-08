@@ -38,6 +38,14 @@ export function deckFormatLabel(format: DeckFormat) {
   return deckFormats.find((item) => item.value === format)?.label ?? format
 }
 
+export function isLegendary(typeLine: string | null) {
+  if (!typeLine) {
+    return false
+  }
+
+  return /\blegendary\b/i.test(typeLine) || /\blendári[oa]\b/i.test(typeLine)
+}
+
 export function formatColorIdentity(colors: string[]) {
   if (colors.length === 0) {
     return 'incolor'

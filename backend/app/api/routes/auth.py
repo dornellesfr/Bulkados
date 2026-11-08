@@ -6,6 +6,8 @@ from app.schemas.auth import (
     LoginRequest,
     MeResponse,
     MessageResponse,
+    PasswordChangeRequest,
+    ProfileUpdate,
     RefreshRequest,
     RegisterRequest,
     RegisterResponse,
@@ -25,12 +27,21 @@ async def register(
     return await auth_service.register(session, auth, body)
 
 
-@router.post("/login", response_model=TokenResponse, response_model_exclude_none=True)
-async def login(body: LoginRequest, session: DbSession, auth: Auth) -> TokenResponse:
-    return await auth_service.login(session, auth, body)
+@router.post("/login", response_model=TokenResponse)
+async def login(body: LoginRequest, auth: Auth) -> TokenResponse:
+    return await auth_service.login(auth, body)
 
 
-@router.post("/refresh", response_model=TokenResponse, response_model_exclude_none=True)
+@router.post("/password", status_code=204)
+async def change_password(
+    body: PasswordChangeRequest,
+    user: CurrentUser,
+    auth: Auth,
+) -> None:
+    await auth_service.change_password(auth, user, body)
+
+
+@router.post("/refresh", response_model=TokenResponse)
 async def refresh(body: RefreshRequest, auth: Auth) -> TokenResponse:
     return await auth_service.refresh(auth, body)
 
@@ -50,3 +61,8 @@ me_router = APIRouter(tags=["auth"])
 @me_router.get("/me", response_model=MeResponse)
 async def me(user: CurrentUser) -> MeResponse:
     return auth_service.me(user)
+
+
+@me_router.patch("/me", response_model=MeResponse)
+async def update_me(body: ProfileUpdate, user: CurrentUser) -> MeResponse:
+    return await auth_service.update_profile(user, body)

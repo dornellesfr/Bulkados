@@ -9,33 +9,45 @@ from tests.integration.conftest import FakeAuth, bearer, obj
 USERS_URL = "/api/v1/admin/users"
 
 
-async def register(client: AsyncClient, nick: str) -> dict[str, object]:
+async def register(client: AsyncClient, label: str) -> dict[str, object]:
     response = await client.post(
         "/api/v1/auth/register",
-        json={"email": f"{nick}@example.com", "password": "password123", "nick": nick},
+        json={
+            "email": f"{label}@example.com",
+            "password": "password123",
+            "first_name": label.capitalize(),
+            "last_name": "Silva",
+        },
     )
     assert response.status_code == 201, response.text
     return obj(response)
 
 
-async def register_admin(client: AsyncClient, nick: str = "root") -> dict[str, object]:
-    created = await register(client, nick)
+async def register_admin(client: AsyncClient, label: str = "root") -> dict[str, object]:
+    created = await register(client, label)
     async with SessionFactory() as session:
         await session.execute(
-            text("UPDATE users SET level = 0 WHERE nick_normalized = :nick"),
-            {"nick": nick},
+            text("UPDATE users SET level = 0 WHERE email = :email"),
+            {"email": f"{label}@example.com"},
         )
         await session.commit()
     return created
 
 
-def new_user(nick: str, **extra: object) -> dict[str, object]:
-    return {"email": f"{nick}@example.com", "password": "password123", "nick": nick, **extra}
+def new_user(label: str, **extra: object) -> dict[str, object]:
+    return {
+        "email": f"{label}@example.com",
+        "password": "password123",
+        "first_name": label.capitalize(),
+        "last_name": "Silva",
+        **extra,
+    }
 
 
-async def level_of(nick: str) -> int:
+async def level_of(label: str) -> int:
     async with SessionFactory() as session:
-        return (await session.scalars(select(User.level).where(User.nick == nick))).one()
+        email = f"{label}@example.com"
+        return (await session.scalars(select(User.level).where(User.email == email))).one()
 
 
 @pytest.mark.integration
@@ -76,11 +88,11 @@ async def test_admin_creates_a_common_user_who_can_log_in(client: AsyncClient) -
     )
 
     assert response.status_code == 201, response.text
-    assert obj(response)["nick"] == "maria"
+    assert obj(response)["email"] == "maria@example.com"
     assert obj(response)["level"] == 1
     login = await client.post(
         "/api/v1/auth/login",
-        json={"identifier": "maria", "password": "password123"},
+        json={"email": "maria@example.com", "password": "password123"},
     )
     assert login.status_code == 200
 
@@ -96,7 +108,7 @@ async def test_admin_creates_another_admin(client: AsyncClient) -> None:
     )
     login = await client.post(
         "/api/v1/auth/login",
-        json={"identifier": "second", "password": "password123"},
+        json={"email": "second@example.com", "password": "password123"},
     )
     second_token = obj(login)["access_token"]
     again = await client.post(USERS_URL, json=new_user("third"), headers=bearer(second_token))
@@ -107,7 +119,7 @@ async def test_admin_creates_another_admin(client: AsyncClient) -> None:
 
 
 @pytest.mark.integration
-async def test_admin_cannot_reuse_a_nick_or_invent_a_level(client: AsyncClient) -> None:
+async def test_admin_cannot_reuse_an_email_or_invent_a_level(client: AsyncClient) -> None:
     root = await register_admin(client)
     headers = bearer(root["access_token"])
     await client.post(USERS_URL, json=new_user("maria"), headers=headers)
@@ -117,16 +129,3 @@ async def test_admin_cannot_reuse_a_nick_or_invent_a_level(client: AsyncClient) 
 
     assert taken.status_code == 409
     assert bad_level.status_code == 422
-
-
-@pytest.mark.integration
-async def test_public_registration_cannot_take_the_admin_nick(
-    client: AsyncClient,
-    auth_provider: FakeAuth,
-) -> None:
-    for nick in ("bulkados", "Bulkados"):
-        response = await client.post("/api/v1/auth/register", json=new_user(nick))
-
-        assert response.status_code == 409
-        assert obj(response) == {"detail": "nick already taken"}
-    assert auth_provider.users == {}

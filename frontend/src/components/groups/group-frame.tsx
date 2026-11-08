@@ -1,18 +1,27 @@
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Link, Outlet, notFound } from '@tanstack/react-router'
+import { Link, Outlet, notFound, useMatchRoute } from '@tanstack/react-router'
 
 import { Badge } from '@/components/ui/badge'
 import { handoffsQueryOptions } from '@/lib/api/requests'
 import { groupsQueryOptions } from '@/lib/api/groups'
 
 export function GroupFrame({ groupId }: { groupId: string }) {
+  const matchRoute = useMatchRoute()
   const { data: groups } = useSuspenseQuery(groupsQueryOptions())
   const { data: handoffs } = useSuspenseQuery(handoffsQueryOptions(groupId))
   const group = groups.find((item) => item.id === groupId)
   const handoffCount = handoffs.to_bring.length + handoffs.to_receive.length
+  const isDeckPage = matchRoute({
+    to: '/grupos/$groupId/decks/$deckId',
+    fuzzy: true,
+  })
 
   if (!group) {
     throw notFound()
+  }
+
+  if (isDeckPage) {
+    return <Outlet />
   }
 
   return (

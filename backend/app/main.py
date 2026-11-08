@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    background = [
-        asyncio.create_task(bootstrap_admin()),
-        asyncio.create_task(catalog_control.run_scheduler()),
-    ]
+    settings = get_settings()
+    background = [asyncio.create_task(bootstrap_admin())]
+    if settings.catalog_sync_enabled:
+        background.append(asyncio.create_task(catalog_control.run_scheduler()))
     yield
     for task in background:
         task.cancel()
@@ -45,10 +45,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     application.include_router(api_router, prefix=settings.api_v1_prefix)
-    if settings.environment == "development":
+    origins = settings.cors_origin_list
+    if not origins and settings.environment == "development":
+        origins = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    if origins:
         application.add_middleware(
             CORSMiddleware,
-            allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+            allow_origins=origins,
             allow_methods=["*"],
             allow_headers=["*"],
         )

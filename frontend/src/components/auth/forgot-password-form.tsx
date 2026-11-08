@@ -21,7 +21,7 @@ export function ForgotPasswordForm() {
   const form = useForm<ForgotPasswordInput>({
     resolver: zodResolver(forgotPasswordInputSchema),
     defaultValues: {
-      identifier: '',
+      email: '',
     },
   })
   const sent = message != null
@@ -35,23 +35,23 @@ export function ForgotPasswordForm() {
           const nextMessage = await forgotPassword(values)
           setMessage(nextMessage)
         } catch (error) {
-          applyApiFormError(form.setError, error, {})
+          applyApiFormError(form.setError, error, { email: 'email' })
         }
       })}
     >
       <FieldGroup>
         <Controller
-          name="identifier"
+          name="email"
           control={form.control}
           render={({ field, fieldState }) => (
             <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="forgot-identifier">
-                Nick ou e-mail
-              </FieldLabel>
+              <FieldLabel htmlFor="forgot-email">E-mail</FieldLabel>
               <Input
                 {...field}
-                id="forgot-identifier"
-                autoComplete="username"
+                id="forgot-email"
+                type="email"
+                autoComplete="email"
+                className="h-10"
                 disabled={sent}
                 aria-invalid={fieldState.invalid}
               />
@@ -68,11 +68,15 @@ export function ForgotPasswordForm() {
           {form.formState.errors.root.message}
         </p>
       ) : null}
-      <Button type="submit" disabled={sent || form.formState.isSubmitting}>
+      <Button
+        type="submit"
+        className="h-10"
+        disabled={sent || form.formState.isSubmitting}
+      >
         {form.formState.isSubmitting ? (
           <Loader2Icon className="animate-spin" />
         ) : null}
-        Enviar
+        Enviar instruções
       </Button>
       <Link to="/entrar" className="text-sm underline-offset-4 hover:underline">
         Voltar para entrar

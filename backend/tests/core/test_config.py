@@ -26,3 +26,32 @@ def test_settings_rejects_unknown_environment() -> None:
                 "environment": "staging",
             }
         )
+
+
+def test_test_environment_uses_the_test_database() -> None:
+    settings = Settings(
+        environment="test",
+        database_url="postgresql+asyncpg://postgres:postgres@localhost:5432/magic_bulk",
+        test_database_url="postgresql+asyncpg://postgres:postgres@localhost:5432/magic_bulk_test",
+    )
+
+    assert settings.effective_database_url.endswith("/magic_bulk_test")
+
+
+def test_production_keeps_the_configured_database() -> None:
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+asyncpg://user:pass@example.com:5432/magic_bulk",
+        test_database_url="postgresql+asyncpg://postgres:postgres@localhost:5432/magic_bulk_test",
+    )
+
+    assert settings.effective_database_url == settings.database_url
+
+
+def test_test_database_cannot_be_the_app_database() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            environment="test",
+            database_url="postgresql+asyncpg://postgres:postgres@localhost:5432/magic_bulk",
+            test_database_url="postgresql+asyncpg://postgres:postgres@localhost:5432/magic_bulk",
+        )

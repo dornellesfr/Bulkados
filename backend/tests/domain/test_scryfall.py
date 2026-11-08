@@ -191,5 +191,21 @@ def test_derives_commander_pairing_and_basic_land() -> None:
     assert text_commander is not None and text_commander.can_be_commander is True
 
 
+def test_only_legendary_cards_can_be_commanders() -> None:
+    draft = catalog_draft_from_scryfall(
+        {
+            "oracle_id": "00000000-0000-0000-0000-000000000008",
+            "name": "Impostor",
+            "type_line": "Creature — Human",
+            "oracle_text": "This card can be your commander.",
+            "color_identity": [],
+            "keywords": [],
+            "legalities": {"commander": "legal"},
+        }
+    )
+
+    assert draft is not None and draft.can_be_commander is False
+
+
 def test_skips_objects_without_an_oracle_id() -> None:
     assert catalog_draft_from_scryfall({"name": "Token"}) is None

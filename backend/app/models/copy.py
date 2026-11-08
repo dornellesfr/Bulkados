@@ -6,6 +6,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Uuid,
 )
@@ -29,6 +30,12 @@ class CardCopy(CreatedAtMixin, Base):
             ")",
             name="state_lock_deck",
         ),
+        Index(
+            "ix_card_copies_holder_id_state_catalog_card_id",
+            "holder_id",
+            "state",
+            "catalog_card_id",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -42,7 +49,6 @@ class CardCopy(CreatedAtMixin, Base):
         Uuid(as_uuid=True),
         ForeignKey("users.id"),
         nullable=False,
-        index=True,
     )
     added_by_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),

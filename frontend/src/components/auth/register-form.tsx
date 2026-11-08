@@ -7,6 +7,7 @@ import { Controller, useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import {
   Field,
+  FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
@@ -23,9 +24,10 @@ export function RegisterForm() {
   const form = useForm<RegisterInput>({
     resolver: zodResolver(registerInputSchema),
     defaultValues: {
+      first_name: '',
+      last_name: '',
       email: '',
       password: '',
-      nick: '',
     },
   })
 
@@ -53,14 +55,53 @@ export function RegisterForm() {
             clearSession('expired')
           }
           applyApiFormError(form.setError, error, {
+            firstName: 'first_name',
+            lastName: 'last_name',
             email: 'email',
             password: 'password',
-            nick: 'nick',
           })
         }
       })}
     >
       <FieldGroup>
+        <Controller
+          name="first_name"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel htmlFor="register-first-name">Nome</FieldLabel>
+              <Input
+                {...field}
+                id="register-first-name"
+                autoComplete="given-name"
+                className="h-10"
+                aria-invalid={fieldState.invalid}
+              />
+              {fieldState.invalid ? (
+                <FieldError errors={[fieldState.error]} />
+              ) : null}
+            </Field>
+          )}
+        />
+        <Controller
+          name="last_name"
+          control={form.control}
+          render={({ field, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel htmlFor="register-last-name">Sobrenome</FieldLabel>
+              <Input
+                {...field}
+                id="register-last-name"
+                autoComplete="family-name"
+                className="h-10"
+                aria-invalid={fieldState.invalid}
+              />
+              {fieldState.invalid ? (
+                <FieldError errors={[fieldState.error]} />
+              ) : null}
+            </Field>
+          )}
+        />
         <Controller
           name="email"
           control={form.control}
@@ -72,6 +113,7 @@ export function RegisterForm() {
                 id="register-email"
                 type="email"
                 autoComplete="email"
+                className="h-10"
                 aria-invalid={fieldState.invalid}
               />
               {fieldState.invalid ? (
@@ -91,29 +133,14 @@ export function RegisterForm() {
                 id="register-password"
                 type="password"
                 autoComplete="new-password"
+                className="h-10"
                 aria-invalid={fieldState.invalid}
               />
               {fieldState.invalid ? (
                 <FieldError errors={[fieldState.error]} />
-              ) : null}
-            </Field>
-          )}
-        />
-        <Controller
-          name="nick"
-          control={form.control}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="register-nick">Nick</FieldLabel>
-              <Input
-                {...field}
-                id="register-nick"
-                autoComplete="username"
-                aria-invalid={fieldState.invalid}
-              />
-              {fieldState.invalid ? (
-                <FieldError errors={[fieldState.error]} />
-              ) : null}
+              ) : (
+                <FieldDescription>Pelo menos 6 caracteres.</FieldDescription>
+              )}
             </Field>
           )}
         />
@@ -123,11 +150,15 @@ export function RegisterForm() {
           {form.formState.errors.root.message}
         </p>
       ) : null}
-      <Button type="submit" disabled={form.formState.isSubmitting}>
+      <Button
+        type="submit"
+        className="h-10"
+        disabled={form.formState.isSubmitting}
+      >
         {form.formState.isSubmitting ? (
           <Loader2Icon className="animate-spin" />
         ) : null}
-        Cadastrar
+        Criar conta
       </Button>
       <Link to="/entrar" className="text-sm underline-offset-4 hover:underline">
         Já tenho conta

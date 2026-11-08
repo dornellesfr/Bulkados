@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.domain.cards import is_doctor, partner_with_name
+from app.domain.cards import is_doctor, is_legendary, partner_with_name
 from app.domain.enums import CommanderLegal, DeckFormat, DeckRole, PartnerKind
 
 COMMANDER_10_MAIN_LIMIT_CENTS = 1000
@@ -76,6 +76,8 @@ def commander_set_error(commanders: Sequence[DeckCardFact]) -> str | None:
     """Por que este conjunto não pode ser o(s) comandante(s) do deck; None se pode."""
     if not commanders:
         return None
+    if any(not is_legendary(commander.type_line) for commander in commanders):
+        return "Só cartas lendárias podem ser comandantes."
     if len(commanders) == 1:
         if commanders[0].can_be_commander:
             return None
@@ -178,6 +180,15 @@ def _banned_warnings(cards: Sequence[DeckCardFact]) -> list[DeckWarning]:
 def _commander_illegal_warnings(commanders: Sequence[DeckCardFact]) -> list[DeckWarning]:
     warnings: list[DeckWarning] = []
     for commander in commanders:
+        if not is_legendary(commander.type_line):
+            warnings.append(
+                DeckWarning(
+                    code="commander_illegal",
+                    message="Só cartas lendárias podem ser comandantes.",
+                    card_copy_id=commander.card_copy_id,
+                )
+            )
+            continue
         if commander.can_be_commander:
             continue
         if _partner_kind_sustains(commander, commanders):
@@ -231,6 +242,8 @@ def _budget_warnings(
 
 
 def _pairing_is_valid(commanders: Sequence[DeckCardFact]) -> bool:
+    if not all(is_legendary(commander.type_line) for commander in commanders):
+        return False
     if len(commanders) == 1:
         return commanders[0].can_be_commander
     if len(commanders) != 2:

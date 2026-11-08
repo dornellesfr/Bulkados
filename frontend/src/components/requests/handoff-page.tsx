@@ -7,18 +7,26 @@ import { PageHeader } from '@/components/layout/page-header'
 import { Button } from '@/components/ui/button'
 import { invalidateBoard, reportBoardError } from '@/lib/api/invalidate'
 import {
+  acceptRequest,
   cancelRequest,
   confirmRequest,
   handoffsQueryOptions,
+  rejectRequest,
 } from '@/lib/api/requests'
-import type { HandoffReceive } from '@/lib/api/requests'
+import type { HandoffBring, HandoffReceive } from '@/lib/api/requests'
+import { personName } from '@/lib/api/schemas'
 import { sourceLabel } from '@/lib/display'
+
+type ConfirmTarget = {
+  id: string
+  side: 'bring' | 'receive'
+}
 
 export function HandoffPage({ groupId }: { groupId: string }) {
   const queryClient = useQueryClient()
   const { data } = useSuspenseQuery(handoffsQueryOptions(groupId))
   const [cancelId, setCancelId] = useState<string | null>(null)
-  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
   const [pending, setPending] = useState(false)
 
   async function run(action: () => Promise<unknown>) {
@@ -39,27 +47,28 @@ export function HandoffPage({ groupId }: { groupId: string }) {
       <section className="flex flex-col gap-3">
         <h2 className="font-heading text-lg font-medium">Levar</h2>
         <p className="text-sm text-muted-foreground">
-          Leve estas cartas no próximo encontro. Quem pediu confirma no app
-          quando o papel estiver na mão dela.
+          Aceite os pedidos e leve as cartas no próximo encontro. Quem entrega e
+          quem recebe confirmam no app.
         </p>
         {data.to_bring.length === 0 ? (
           <p>Nada para levar neste grupo.</p>
         ) : (
           <ul className="flex flex-col gap-3">
             {data.to_bring.map((item) => (
-              <li
+              <BringRow
                 key={item.id}
-                className="rounded-xl bg-card p-4 ring-1 ring-foreground/10"
-              >
-                <CardTitle
-                  namePt={item.catalog.name_pt}
-                  nameEn={item.catalog.name_en}
-                />
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {item.requester.nick} · {item.target_deck.name} ·{' '}
-                  {sourceLabel(item.source)}
-                </p>
-              </li>
+                item={item}
+                pending={pending}
+                onAccept={() => {
+                  void run(() => acceptRequest(item.id))
+                }}
+                onReject={() => {
+                  void run(() => rejectRequest(item.id))
+                }}
+                onConfirm={() => {
+                  setConfirmTarget({ id: item.id, side: 'bring' })
+                }}
+              />
             ))}
           </ul>
         )}
@@ -79,7 +88,7 @@ export function HandoffPage({ groupId }: { groupId: string }) {
                   setCancelId(item.id)
                 }}
                 onConfirm={() => {
-                  setConfirmId(item.id)
+                  setConfirmTarget({ id: item.id, side: 'receive' })
                 }}
               />
             ))}
@@ -109,27 +118,88 @@ export function HandoffPage({ groupId }: { groupId: string }) {
         }}
       />
       <ConfirmDialog
-        open={confirmId != null}
+        open={confirmTarget != null}
         onOpenChange={(open) => {
           if (!open) {
-            setConfirmId(null)
+            setConfirmTarget(null)
           }
         }}
-        title="Confirmar recebimento"
-        description="Confirme só se a carta já está na sua mão. A casa passa a ser você e ela entra no deck travada."
+        title={
+          confirmTarget?.side === 'bring'
+            ? 'Confirmar entrega'
+            : 'Confirmar recebimento'
+        }
+        description={
+          confirmTarget?.side === 'bring'
+            ? 'Confirme só se você já entregou a carta. A carta só muda de mão quando a outra pessoa também confirmar.'
+            : 'Confirme só se a carta já está na sua mão. A carta só muda de mão quando a outra pessoa também confirmar. Trave no deck se não quiser que peçam.'
+        }
         confirmLabel="Confirmar"
         pending={pending}
         onConfirm={() => {
-          if (!confirmId) {
+          if (!confirmTarget) {
             return
           }
 
-          const requestId = confirmId
-          setConfirmId(null)
+          const requestId = confirmTarget.id
+          setConfirmTarget(null)
           void run(() => confirmRequest(requestId))
         }}
       />
     </div>
+  )
+}
+
+function BringRow({
+  item,
+  pending,
+  onAccept,
+  onReject,
+  onConfirm,
+}: {
+  item: HandoffBring
+  pending: boolean
+  onAccept: () => void
+  onReject: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <li className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
+      <div>
+        <CardTitle
+          namePt={item.catalog.name_pt}
+          nameEn={item.catalog.name_en}
+        />
+        <p className="mt-1 text-sm break-all text-muted-foreground">
+          Pedido de {personName(item.requester)}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          {item.target_deck.name}, {sourceLabel(item.source)}
+        </p>
+        <p className="text-sm">{bringStatus(item)}</p>
+      </div>
+      {item.status === 'pending_acceptance' ? (
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pending}
+            onClick={onReject}
+          >
+            Recusar
+          </Button>
+          <Button type="button" disabled={pending} onClick={onAccept}>
+            Aceitar
+          </Button>
+        </div>
+      ) : item.holder_confirmed ? null : (
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" disabled={pending} onClick={onConfirm}>
+            Confirmar entrega
+          </Button>
+        </div>
+      )}
+    </li>
   )
 }
 
@@ -154,11 +224,7 @@ function ReceiveRow({
         <p className="mt-1 text-sm text-muted-foreground">
           {item.target_deck.name} · {sourceLabel(item.source)}
         </p>
-        <p className="text-sm">
-          {item.status === 'pending_acceptance'
-            ? `Esperando aceite de ${item.holder.nick}`
-            : 'Esperando a carta'}
-        </p>
+        <p className="text-sm">{receiveStatus(item)}</p>
       </div>
       <div className="flex flex-wrap justify-end gap-2">
         <Button
@@ -169,12 +235,44 @@ function ReceiveRow({
         >
           Cancelar
         </Button>
-        {item.status === 'awaiting_handoff' ? (
+        {item.status === 'awaiting_handoff' && !item.requester_confirmed ? (
           <Button type="button" disabled={pending} onClick={onConfirm}>
-            Confirmar
+            Confirmar recebimento
           </Button>
         ) : null}
       </div>
     </li>
   )
+}
+
+function bringStatus(item: HandoffBring) {
+  if (item.status === 'pending_acceptance') {
+    return 'Aceite o pedido se você está com a carta e pode levá-la.'
+  }
+
+  if (item.holder_confirmed) {
+    return `Você confirmou a entrega. Falta ${personName(item.requester)} confirmar o recebimento.`
+  }
+
+  if (item.requester_confirmed) {
+    return `${personName(item.requester)} já confirmou o recebimento. Confirme a entrega.`
+  }
+
+  return 'Leve no encontro. Quem entrega e quem recebe confirmam no app.'
+}
+
+function receiveStatus(item: HandoffReceive) {
+  if (item.status === 'pending_acceptance') {
+    return `Esperando aceite de ${personName(item.holder)}.`
+  }
+
+  if (item.requester_confirmed) {
+    return `Você confirmou o recebimento. Falta ${personName(item.holder)} confirmar a entrega.`
+  }
+
+  if (item.holder_confirmed) {
+    return `${personName(item.holder)} confirmou a entrega. Confirme se a carta está na sua mão.`
+  }
+
+  return 'Esperando a carta. Quem entrega e quem recebe confirmam no app.'
 }

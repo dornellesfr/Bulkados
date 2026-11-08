@@ -23,8 +23,7 @@ class FakeAuth:
     def __init__(self) -> None:
         self.users: dict[str, tuple[str, UUID]] = {}
 
-    async def sign_up(self, email: str, password: str, nick: str) -> UUID:
-        del nick
+    async def sign_up(self, email: str, password: str) -> UUID:
         if email in self.users:
             raise RegistrationRejectedError
         user_id = uuid4()
@@ -36,7 +35,7 @@ class FakeAuth:
         if record is None or record[0] != password:
             raise InvalidCredentialsError
         return AuthSession(
-            access_token=_token(record[1]),
+            access_token=_token(record[1], email),
             refresh_token=f"refresh-{record[1]}",
             expires_in=3600,
         )
@@ -51,6 +50,18 @@ class FakeAuth:
 
     async def request_password_reset(self, email: str) -> None:
         del email
+
+    async def update_password(self, access_token: str, new_password: str) -> None:
+        payload = jwt.decode(access_token, options={"verify_signature": False})
+        subject = payload.get("sub")
+        if not isinstance(subject, str):
+            raise InvalidCredentialsError
+        user_id = UUID(subject)
+        for email, record in self.users.items():
+            if record[1] == user_id:
+                self.users[email] = (new_password, user_id)
+                return
+        raise InvalidCredentialsError
 
     async def delete_user(self, user_id: UUID) -> None:
         self.users = {email: record for email, record in self.users.items() if record[1] != user_id}
@@ -88,14 +99,17 @@ class FakeCatalogSource:
             yield pair
 
 
-def _token(user_id: UUID) -> str:
+def _token(user_id: UUID, email: str | None = None) -> str:
+    payload = {
+        "sub": str(user_id),
+        "aud": "authenticated",
+        "iss": "https://example.supabase.co/auth/v1",
+        "exp": datetime.now(UTC) + timedelta(hours=1),
+    }
+    if email is not None:
+        payload["email"] = email
     encoded = jwt.encode(
-        {
-            "sub": str(user_id),
-            "aud": "authenticated",
-            "iss": "https://example.supabase.co/auth/v1",
-            "exp": datetime.now(UTC) + timedelta(hours=1),
-        },
+        payload,
         "test-secret",
         algorithm="HS256",
     )

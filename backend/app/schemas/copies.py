@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.domain.enums import CopyState, RequestSource, RequestStatus
+from app.domain.enums import CopyState, PartnerKind, RequestSource, RequestStatus
 
 CopyVisibility = Literal["available", "reserved", "in_deck", "in_use_elsewhere"]
 
@@ -28,7 +28,9 @@ class PersonRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    nick: str
+    email: str
+    first_name: str
+    last_name: str
 
 
 class CatalogRef(BaseModel):
@@ -40,8 +42,12 @@ class CatalogRef(BaseModel):
     image_url: str | None
     mana_cost: str | None
     type_line: str
+    oracle_text: str
     color_identity: list[str]
     is_basic: bool
+    keywords: list[str]
+    can_be_commander: bool
+    partner_kind: PartnerKind | None
 
 
 class CopyDeckRef(BaseModel):
@@ -75,3 +81,4 @@ class CopyRead(BaseModel):
     visibility: CopyVisibility
     deck: CopyDeckRef | None
     open_request: OpenRequestRef | None
+    group_ids: list[UUID]

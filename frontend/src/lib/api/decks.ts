@@ -7,6 +7,7 @@ import {
   deckFormatSchema,
   deckNameSchema,
   openRequestSchema,
+  partnerKindSchema,
   personSchema,
   quantitySchema,
 } from '@/lib/api/schemas'
@@ -32,6 +33,11 @@ export const deckCommanderSchema = z.object({
   name_en: z.string(),
   name_pt: z.string().nullable(),
   image_url: z.string().nullable(),
+  can_be_commander: z.boolean(),
+  partner_kind: partnerKindSchema.nullable(),
+  type_line: z.string(),
+  oracle_text: z.string(),
+  keywords: z.array(z.string()),
 })
 
 export const deckSummarySchema = z.object({
@@ -40,12 +46,12 @@ export const deckSummarySchema = z.object({
   format: deckFormatSchema,
   color_identity: z.array(z.string()).nullable(),
   color_identity_name: z.string().nullable(),
+  card_count: z.number().int(),
   commanders: z.array(deckCommanderSchema),
 })
 
 export const deckDetailSchema = z.object({
   id: z.string(),
-  group_id: z.string(),
   name: z.string(),
   format: deckFormatSchema,
   owner_id: z.string(),
@@ -73,28 +79,42 @@ export const deckCopiesInputSchema = z.object({
   quantity: quantitySchema,
 })
 
+export const deckBulkCardSchema = z.object({
+  name: z.string().trim().min(1),
+  role: z.enum(['commander', 'main']),
+})
+
+export const deckBulkInputSchema = z.object({
+  cards: z.array(deckBulkCardSchema).max(1000),
+})
+
+export const deckBulkValidationSchema = z.object({
+  unknown: z.array(z.string()),
+})
+
 export type DeckWarning = z.infer<typeof deckWarningSchema>
 export type DeckCard = z.infer<typeof deckCardSchema>
 export type DeckSummary = z.infer<typeof deckSummarySchema>
 export type DeckDetail = z.infer<typeof deckDetailSchema>
 export type CreateDeckInput = z.infer<typeof createDeckInputSchema>
 export type UpdateDeckInput = z.infer<typeof updateDeckInputSchema>
+export type DeckBulkCard = z.infer<typeof deckBulkCardSchema>
+export type DeckBulkInput = z.infer<typeof deckBulkInputSchema>
+export type DeckBulkValidation = z.infer<typeof deckBulkValidationSchema>
 
 export const deckKeys = {
   all: ['decks'] as const,
-  list: (groupId: string) => ['decks', 'list', groupId] as const,
+  list: () => ['decks', 'list'] as const,
   detail: (deckId: string) => ['decks', 'detail', deckId] as const,
 }
 
-export async function listDecks(groupId: string, signal?: AbortSignal) {
-  return apiRequest(`/groups/${groupId}/decks`, z.array(deckSummarySchema), {
-    signal,
-  })
+export async function listDecks(signal?: AbortSignal) {
+  return apiRequest('/decks', z.array(deckSummarySchema), { signal })
 }
 
-export async function createDeck(groupId: string, input: CreateDeckInput) {
+export async function createDeck(input: CreateDeckInput) {
   const payload = createDeckInputSchema.parse(input)
-  return apiRequest(`/groups/${groupId}/decks`, deckSummarySchema, {
+  return apiRequest('/decks', deckSummarySchema, {
     method: 'POST',
     body: JSON.stringify(payload),
   })
@@ -128,11 +148,18 @@ export async function setCommanders(
   })
 }
 
-export async function takeCopy(deckId: string, cardCopyId: string) {
+export async function takeCopy(
+  deckId: string,
+  cardCopyId: string,
+  asCommander = false,
+) {
   return apiRequest(`/decks/${deckId}/take`, z.unknown(), {
     method: 'POST',
     conflict: 'request',
-    body: JSON.stringify({ card_copy_id: cardCopyId }),
+    body: JSON.stringify({
+      card_copy_id: cardCopyId,
+      as_commander: asCommander,
+    }),
   })
 }
 
@@ -147,14 +174,38 @@ export async function addDeckCopies(
   })
 }
 
+export async function validateDeckCards(deckId: string, input: DeckBulkInput) {
+  const payload = deckBulkInputSchema.parse(input)
+  return apiRequest(
+    `/decks/${deckId}/bulk/validate`,
+    deckBulkValidationSchema,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  )
+}
+
+export async function replaceDeckCards(deckId: string, input: DeckBulkInput) {
+  const payload = deckBulkInputSchema.parse(input)
+  return apiRequest(`/decks/${deckId}/bulk`, deckDetailSchema, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function moveDeckCard(
   deckId: string,
   cardCopyId: string,
   targetDeckId: string,
+  asCommander = false,
 ) {
   return apiRequest(`/decks/${deckId}/cards/${cardCopyId}/move`, z.unknown(), {
     method: 'POST',
-    body: JSON.stringify({ target_deck_id: targetDeckId }),
+    body: JSON.stringify({
+      target_deck_id: targetDeckId,
+      as_commander: asCommander,
+    }),
   })
 }
 
@@ -180,10 +231,10 @@ export async function unlockDeckCard(deckId: string, cardCopyId: string) {
   )
 }
 
-export function decksQueryOptions(groupId: string) {
+export function decksQueryOptions() {
   return queryOptions({
-    queryKey: deckKeys.list(groupId),
-    queryFn: ({ signal }) => listDecks(groupId, signal),
+    queryKey: deckKeys.list(),
+    queryFn: ({ signal }) => listDecks(signal),
   })
 }
 

@@ -305,10 +305,16 @@ def legend(name: str, **kwargs: object) -> DeckCardFact:
     return card(name=name, commander=True, type_line="Legendary Creature — Human", **kwargs)  # type: ignore[arg-type]
 
 
-def test_a_single_commander_must_be_eligible() -> None:
+def test_a_single_commander_must_be_legendary_and_eligible() -> None:
     assert commander_set_error([]) is None
     assert commander_set_error([legend("Azula")]) is None
-    assert commander_set_error([card(name="Sol Ring")]) == "Esta carta não pode ser comandante."
+    assert (
+        commander_set_error([card(name="Sol Ring")]) == "Só cartas lendárias podem ser comandantes."
+    )
+    assert (
+        commander_set_error([card(name="Fake Commander", commander=True)])
+        == "Só cartas lendárias podem ser comandantes."
+    )
 
 
 def test_two_commanders_must_form_a_valid_pair() -> None:
@@ -324,6 +330,12 @@ def test_two_commanders_must_form_a_valid_pair() -> None:
 
     assert commander_set_error([partner_a, partner_b]) is None
     assert commander_set_error([creature, background]) is None
+    assert (
+        commander_set_error(
+            [partner_a, card(name="Fake Partner", commander=True, partner=PartnerKind.partner)]
+        )
+        == "Só cartas lendárias podem ser comandantes."
+    )
     assert commander_set_error([partner_a, plain]) is not None
     assert commander_set_error([plain, legend("Other")]) is not None
     assert commander_set_error([background]) is not None
