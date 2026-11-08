@@ -3,6 +3,7 @@ import {
   BellRingIcon,
   CheckIcon,
   CrownIcon,
+  Loader2Icon,
   LockIcon,
   LockOpenIcon,
   RefreshCwIcon,
@@ -55,7 +56,7 @@ export function DeckCardDialog({
   meId,
   isOwner,
   busy,
-  warnings,
+  busyKey,
   onOpenChange,
   onReturn,
   onToggleCommander,
@@ -68,7 +69,7 @@ export function DeckCardDialog({
   meId: string
   isOwner: boolean
   busy: boolean
-  warnings: Array<string>
+  busyKey: string | null
   onOpenChange: (open: boolean) => void
   onReturn: (card: DeckCard) => void
   onToggleCommander: (card: DeckCard) => void
@@ -82,30 +83,120 @@ export function DeckCardDialog({
   const awaitingDecision = pending?.status === 'pending_acceptance'
   const canRefresh =
     card != null && card.holder.id === meId && !card.catalog.is_basic
+  const lockPending = card != null && busyKey === `lock:${card.card_copy_id}`
+
+  const actions =
+    card != null && isOwner ? (
+      <>
+        {pending && awaitingDecision ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                onReject(card)
+              }}
+            >
+              <XIcon />
+              Recusar
+            </Button>
+            <Button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                onAccept(card)
+              }}
+            >
+              <CheckIcon />
+              Aceitar
+            </Button>
+          </>
+        ) : null}
+        {!pending ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => {
+                onToggleLock(card)
+              }}
+            >
+              {lockPending ? (
+                <Loader2Icon className="animate-spin" />
+              ) : card.locked ? (
+                <LockOpenIcon />
+              ) : (
+                <LockIcon />
+              )}
+              {card.locked ? 'Destravar' : 'Travar para o deck'}
+            </Button>
+            {card.role === 'commander' && card.can_toggle_commander ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  onToggleCommander(card)
+                }}
+              >
+                <CrownIcon />
+                Remover de comandante
+              </Button>
+            ) : null}
+            {canRefresh ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  onRefresh(card)
+                }}
+              >
+                <RefreshCwIcon />
+                Atualizar preço
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                onReturn(card)
+              }}
+            >
+              <Trash2Icon />
+              Remover do deck
+            </Button>
+          </>
+        ) : null}
+      </>
+    ) : null
 
   return (
-    <Dialog open={card != null} onOpenChange={onOpenChange} title={name} wide>
+    <Dialog
+      open={card != null}
+      onOpenChange={onOpenChange}
+      title={name}
+      footer={actions}
+      wide
+      center
+    >
       {card ? (
-        <div className="flex flex-col gap-5 sm:grid sm:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] sm:gap-6">
+        <div className="flex flex-col gap-4 sm:grid sm:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] sm:items-start sm:gap-6">
           <CardThumb
             url={card.catalog.image_url}
             alt={name}
             preview={false}
-            className="mx-auto aspect-[488/680] h-auto w-full max-w-64 rounded-[4.5%] object-cover sm:mx-0 sm:max-w-none"
+            className="mx-auto aspect-[488/680] h-auto w-full max-w-80 rounded-[4.5%] object-cover sm:mx-0 sm:max-w-none"
           />
           <div className="flex min-w-0 flex-col gap-4 text-sm">
             <div className="flex flex-col gap-2">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-heading text-lg font-medium">
-                    {card.catalog.name_pt ?? card.catalog.name_en}
-                  </p>
-                  {card.catalog.name_pt ? (
-                    <p className="text-muted-foreground">
-                      {card.catalog.name_en}
-                    </p>
-                  ) : null}
-                </div>
+                <p className="text-muted-foreground">
+                  {card.catalog.type_line}
+                </p>
                 <ManaCost
                   cost={card.catalog.mana_cost}
                   className="shrink-0"
@@ -113,7 +204,6 @@ export function DeckCardDialog({
                 />
               </div>
               <ColorIdentity colors={card.catalog.color_identity} name={null} />
-              <p className="text-muted-foreground">{card.catalog.type_line}</p>
             </div>
 
             {pending ? (
@@ -128,14 +218,6 @@ export function DeckCardDialog({
                     : 'Pedido aceito. A carta só muda de mão quando os dois confirmarem no encontro.'}
                 </p>
               </div>
-            ) : null}
-
-            {warnings.length > 0 ? (
-              <ul className="flex flex-col gap-1 rounded-lg bg-destructive/10 px-3 py-2 text-destructive">
-                {warnings.map((warning, index) => (
-                  <li key={`${warning}-${index}`}>{warning}</li>
-                ))}
-              </ul>
             ) : null}
 
             {card.catalog.oracle_text ? (
@@ -178,88 +260,6 @@ export function DeckCardDialog({
                 </Detail>
               ) : null}
             </dl>
-
-            {isOwner ? (
-              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-foreground/10 pt-4">
-                {pending && awaitingDecision ? (
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => {
-                        onReject(card)
-                      }}
-                    >
-                      <XIcon />
-                      Recusar
-                    </Button>
-                    <Button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        onAccept(card)
-                      }}
-                    >
-                      <CheckIcon />
-                      Aceitar
-                    </Button>
-                  </>
-                ) : null}
-                {!pending ? (
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => {
-                        onToggleLock(card)
-                      }}
-                    >
-                      {card.locked ? <LockOpenIcon /> : <LockIcon />}
-                      {card.locked ? 'Destravar' : 'Travar para o deck'}
-                    </Button>
-                    {card.role === 'commander' && card.can_toggle_commander ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => {
-                          onToggleCommander(card)
-                        }}
-                      >
-                        <CrownIcon />
-                        Remover de comandante
-                      </Button>
-                    ) : null}
-                    {canRefresh ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={busy}
-                        onClick={() => {
-                          onRefresh(card)
-                        }}
-                      >
-                        <RefreshCwIcon />
-                        Atualizar preço
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      disabled={busy}
-                      onClick={() => {
-                        onReturn(card)
-                      }}
-                    >
-                      <Trash2Icon />
-                      Remover do deck
-                    </Button>
-                  </>
-                ) : null}
-              </div>
-            ) : null}
           </div>
         </div>
       ) : null}

@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import { useQueryClient, useSuspenseQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { LayoutGridIcon, ListIcon } from 'lucide-react'
+import { LayoutGridIcon, ListIcon, Trash2Icon } from 'lucide-react'
 
 import { CardThumb } from '@/components/cards/card-thumb'
 import { ColorIdentity } from '@/components/cards/color-identity'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { CreateDeckDialog } from '@/components/decks/create-deck-dialog'
 import { PageHeader } from '@/components/layout/page-header'
-import { ActionMenu } from '@/components/ui/action-menu'
 import { Button } from '@/components/ui/button'
 import { deleteDeck, decksQueryOptions } from '@/lib/api/decks'
 import type { DeckSummary } from '@/lib/api/decks'
@@ -183,20 +182,21 @@ export function DecksPage({ groupId }: { groupId: string }) {
     }
   }
 
-  function deckActions(deck: DeckSummary) {
+  function deckDeleteButton(deck: DeckSummary) {
     return (
-      <ActionMenu
-        items={[
-          {
-            id: 'delete',
-            label: 'Apagar deck',
-            destructive: true,
-            onSelect: () => {
-              setDeleteTarget(deck)
-            },
-          },
-        ]}
-      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`Apagar deck ${deck.name}`}
+        title="Apagar deck"
+        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+        onClick={() => {
+          setDeleteTarget(deck)
+        }}
+      >
+        <Trash2Icon />
+      </Button>
     )
   }
 
@@ -264,8 +264,8 @@ export function DecksPage({ groupId }: { groupId: string }) {
                   </span>
                 </div>
               </Link>
-              <div className="absolute right-3 top-1/2 z-10 -translate-y-1/2">
-                {deckActions(deck)}
+              <div className="absolute bottom-3 right-3 z-10">
+                {deckDeleteButton(deck)}
               </div>
             </li>
           ))}
@@ -275,12 +275,12 @@ export function DecksPage({ groupId }: { groupId: string }) {
           {decks.map((deck) => (
             <li
               key={deck.id}
-              className="relative overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 focus-within:ring-2 focus-within:ring-ring"
+              className="relative flex flex-col overflow-hidden rounded-xl bg-card ring-1 ring-foreground/10 focus-within:ring-2 focus-within:ring-ring"
             >
               <Link
                 to="/grupos/$groupId/decks/$deckId"
                 params={{ groupId, deckId: deck.id }}
-                className="flex h-full flex-col outline-none"
+                className="flex flex-1 flex-col outline-none"
               >
                 <DeckCovers commanders={deck.commanders} view="grade" />
                 <div className="flex flex-1 flex-col gap-2 p-4">
@@ -308,8 +308,8 @@ export function DecksPage({ groupId }: { groupId: string }) {
                   </div>
                 </div>
               </Link>
-              <div className="absolute right-3 top-3 z-10">
-                {deckActions(deck)}
+              <div className="flex justify-end border-t border-border/60 px-2 py-1">
+                {deckDeleteButton(deck)}
               </div>
             </li>
           ))}

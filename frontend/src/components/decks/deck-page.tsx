@@ -11,6 +11,7 @@ import {
   AlertTriangleIcon,
   ArrowLeftIcon,
   BellRingIcon,
+  ChevronRightIcon,
   ListChecksIcon,
   Loader2Icon,
   LockIcon,
@@ -52,7 +53,12 @@ import {
   updateDeck,
   updateDeckInputSchema,
 } from '@/lib/api/decks'
-import type { DeckCard, DeckDetail, UpdateDeckInput } from '@/lib/api/decks'
+import type {
+  DeckCard,
+  DeckDetail,
+  DeckWarning,
+  UpdateDeckInput,
+} from '@/lib/api/decks'
 import { invalidateBoard, reportBoardError } from '@/lib/api/invalidate'
 import { acceptRequest, rejectRequest } from '@/lib/api/requests'
 import {
@@ -66,21 +72,21 @@ import { deckFormatLabel, deckFormats } from '@/lib/display'
 import { formatCents, formatCopyPrice } from '@/lib/money'
 import { cn } from '@/lib/utils'
 
-const budgetWarningCodes = new Set(['budget_main', 'budget_commanders'])
-
-function cardWarnings(deck: DeckDetail, cardCopyId: string) {
-  return deck.warnings
-    .filter((warning) => warning.card_copy_id === cardCopyId)
-    .map((warning) => warning.message)
+const warningTitles: Record<string, string> = {
+  deck_under_100: 'Tamanho do deck',
+  deck_over_100: 'Tamanho do deck',
+  duplicate_name: 'Carta repetida',
+  color_identity: 'Fora da identidade de cor',
+  banned: 'Carta banida no Commander',
+  commander_illegal: 'Comandante inválido',
+  commander_pairing: 'Dupla de comandantes inválida',
+  missing_price: 'Preço desconhecido',
+  budget_main: 'Teto de preço das cartas',
+  budget_commanders: 'Teto de preço dos comandantes',
 }
 
-function globalWarnings(deck: DeckDetail) {
-  return deck.warnings
-    .filter(
-      (warning) =>
-        warning.card_copy_id == null && !budgetWarningCodes.has(warning.code),
-    )
-    .map((warning) => warning.message)
+function cardDisplayName(card: DeckCard) {
+  return card.catalog.name_pt ?? card.catalog.name_en
 }
 
 export function DeckPage({
@@ -104,7 +110,6 @@ export function DeckPage({
   const [busy, setBusy] = useState<string | null>(null)
   const selectedCard =
     deck.cards.find((card) => card.card_copy_id === selectedId) ?? null
-  const warnings = globalWarnings(deck)
 
   async function run(key: string, action: () => Promise<unknown>) {
     setBusy(key)
@@ -184,12 +189,12 @@ export function DeckPage({
         }}
       />
       <DeckSummary deck={deck} />
-      {warnings.length > 0 ? <WarningLines messages={warnings} /> : null}
+      <DeckWarnings deck={deck} />
       <DeckCards
         deck={deck}
         groupId={groupId}
         isOwner={isOwner}
-        busy={busy != null}
+        busyKey={busy}
         onAdd={() => {
           setAddOpen(true)
         }}
@@ -205,9 +210,7 @@ export function DeckPage({
         meId={me.id}
         isOwner={isOwner}
         busy={busy != null}
-        warnings={
-          selectedCard ? cardWarnings(deck, selectedCard.card_copy_id) : []
-        }
+        busyKey={busy}
         onOpenChange={(open) => {
           if (!open) {
             setSelectedId(null)
@@ -315,7 +318,7 @@ function DeckHero({
                 key={`${url}-${index}`}
                 src={url}
                 alt=""
-                className="h-full w-full scale-110 object-cover blur-2xl"
+                className="h-full w-full scale-105 object-cover blur-lg"
               />
             ))}
           </div>
@@ -439,17 +442,124 @@ function DeckSummary({ deck }: { deck: DeckDetail }) {
   )
 }
 
-function WarningLines({ messages }: { messages: Array<string> }) {
-  if (messages.length === 0) {
+function DeckWarnings({ deck }: { deck: DeckDetail }) {
+  const [open, setOpen] = useState(false)
+
+  if (deck.warnings.length === 0) {
     return null
   }
 
+  const count = deck.warnings.length
+
   return (
-    <ul className="flex flex-col gap-1 text-sm text-destructive">
-      {messages.map((message, index) => (
-        <li key={`${message}-${index}`}>{message}</li>
-      ))}
-    </ul>
+    <>
+      <button
+        type="button"
+        className="flex w-full cursor-pointer items-center gap-3 rounded-xl bg-destructive/10 px-4 py-3 text-left text-destructive ring-1 ring-destructive/25 transition-colors outline-none hover:bg-destructive/15 focus-visible:ring-3 focus-visible:ring-ring/50"
+        onClick={() => {
+          setOpen(true)
+        }}
+      >
+        <AlertTriangleIcon className="size-5 shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium">Deck fora das regras</span>
+          <span className="block text-sm text-destructive/80">
+            {count === 1 ? '1 aviso' : `${count} avisos`} · clique para ver os
+            detalhes
+          </span>
+        </span>
+        <ChevronRightIcon className="size-4 shrink-0" />
+      </button>
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Avisos do deck"
+        description="O deck está fora das regras do formato. Estes avisos não impedem editar o deck."
+      >
+        <ul className="flex flex-col divide-y divide-foreground/10">
+          {deck.warnings.map((warning, index) => (
+            <WarningItem
+              key={`${warning.code}-${warning.card_copy_id ?? index}`}
+              warning={warning}
+              deck={deck}
+            />
+          ))}
+        </ul>
+      </Dialog>
+    </>
+  )
+}
+
+function WarningItem({
+  warning,
+  deck,
+}: {
+  warning: DeckWarning
+  deck: DeckDetail
+}) {
+  const card =
+    deck.cards.find((item) => item.card_copy_id === warning.card_copy_id) ??
+    null
+  const commanders =
+    warning.code === 'budget_commanders'
+      ? deck.cards.filter((item) => item.role === 'commander')
+      : []
+
+  return (
+    <li className="flex gap-3 py-3 first:pt-0 last:pb-0">
+      <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">
+          {warningTitles[warning.code] ?? 'Aviso do deck'}
+        </p>
+        <p className="text-sm text-muted-foreground">{warning.message}</p>
+        {card ? (
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium">
+              {card.role === 'commander' ? 'Comandante' : 'Carta'}
+            </span>
+            <span className="font-medium">{cardDisplayName(card)}</span>
+            <span className="text-muted-foreground tabular-nums">
+              {formatCopyPrice(card.price_cents, card.catalog.is_basic)}
+            </span>
+          </div>
+        ) : null}
+        {commanders.length > 0 ? (
+          <ul className="mt-2 flex flex-col gap-1 text-sm">
+            {commanders.map((commander) => (
+              <li
+                key={commander.card_copy_id}
+                className="flex items-center justify-between gap-3"
+              >
+                <span className="truncate">{cardDisplayName(commander)}</span>
+                <span className="shrink-0 text-muted-foreground tabular-nums">
+                  {formatCopyPrice(
+                    commander.price_cents,
+                    commander.catalog.is_basic,
+                  )}
+                </span>
+              </li>
+            ))}
+            <li className="flex items-center justify-between gap-3 border-t border-foreground/10 pt-1 font-medium">
+              <span>Soma dos comandantes</span>
+              <span className="tabular-nums">
+                {formatCents(deck.commander_price_cents)}
+              </span>
+            </li>
+          </ul>
+        ) : null}
+        {warning.code === 'budget_main' ? (
+          <p className="mt-2 text-sm">
+            <span className="text-muted-foreground">
+              Soma atual das cartas (sem comandantes):{' '}
+            </span>
+            <span className="font-medium tabular-nums">
+              {formatCents(deck.main_price_cents)}
+            </span>
+          </p>
+        ) : null}
+      </div>
+    </li>
   )
 }
 
@@ -457,7 +567,7 @@ function DeckCards({
   deck,
   groupId,
   isOwner,
-  busy,
+  busyKey,
   onAdd,
   onOpen,
   onToggleLock,
@@ -465,7 +575,7 @@ function DeckCards({
   deck: DeckDetail
   groupId: string
   isOwner: boolean
-  busy: boolean
+  busyKey: string | null
   onAdd: () => void
   onOpen: (card: DeckCard) => void
   onToggleLock: (card: DeckCard) => void
@@ -505,9 +615,8 @@ function DeckCards({
                   key={section.category}
                   category={section.category}
                   cards={section.cards}
-                  deck={deck}
                   isOwner={isOwner}
-                  busy={busy}
+                  busyKey={busyKey}
                   onOpen={onOpen}
                   onToggleLock={onToggleLock}
                 />
@@ -523,17 +632,15 @@ function DeckCards({
 function CardSection({
   category,
   cards,
-  deck,
   isOwner,
-  busy,
+  busyKey,
   onOpen,
   onToggleLock,
 }: {
   category: DeckCardCategory
   cards: Array<DeckCard>
-  deck: DeckDetail
   isOwner: boolean
-  busy: boolean
+  busyKey: string | null
   onOpen: (card: DeckCard) => void
   onToggleLock: (card: DeckCard) => void
 }) {
@@ -548,9 +655,9 @@ function CardSection({
           <DeckCardRow
             key={card.card_copy_id}
             card={card}
-            warnings={cardWarnings(deck, card.card_copy_id)}
             isOwner={isOwner}
-            busy={busy}
+            busy={busyKey != null}
+            lockPending={busyKey === `lock:${card.card_copy_id}`}
             onOpen={onOpen}
             onToggleLock={onToggleLock}
           />
@@ -562,26 +669,24 @@ function CardSection({
 
 function DeckCardRow({
   card,
-  warnings,
   isOwner,
   busy,
+  lockPending,
   onOpen,
   onToggleLock,
 }: {
   card: DeckCard
-  warnings: Array<string>
   isOwner: boolean
   busy: boolean
+  lockPending: boolean
   onOpen: (card: DeckCard) => void
   onToggleLock: (card: DeckCard) => void
 }) {
   const name = card.catalog.name_pt ?? card.catalog.name_en
   const pending = card.open_request
-  const warningText = pending
+  const pendingText = pending
     ? `Pedido de ${pending.requester.first_name} ${pending.requester.last_name}`
-    : warnings.length > 0
-      ? warnings.join(' ')
-      : null
+    : null
 
   return (
     <li>
@@ -604,14 +709,20 @@ function DeckCardRow({
               onToggleLock(card)
             }}
           >
-            {card.locked ? <LockIcon /> : <LockOpenIcon />}
+            {lockPending ? (
+              <Loader2Icon className="animate-spin" />
+            ) : card.locked ? (
+              <LockIcon />
+            ) : (
+              <LockOpenIcon />
+            )}
           </Button>
         ) : (
           <span className="size-6 shrink-0" />
         )}
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => {
             onOpen(card)
           }}
@@ -619,19 +730,11 @@ function DeckCardRow({
           <span
             className={cn(
               'flex size-5 shrink-0 items-center justify-center',
-              pending
-                ? 'text-amber-600 dark:text-amber-300'
-                : warnings.length > 0
-                  ? 'text-destructive'
-                  : null,
+              pending ? 'text-amber-600 dark:text-amber-300' : null,
             )}
-            title={warningText ?? undefined}
+            title={pendingText ?? undefined}
           >
-            {pending ? (
-              <BellRingIcon className="size-4" />
-            ) : warnings.length > 0 ? (
-              <AlertTriangleIcon className="size-4" />
-            ) : null}
+            {pending ? <BellRingIcon className="size-4" /> : null}
           </span>
           <span className="min-w-0 flex-1 truncate">{name}</span>
           <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
