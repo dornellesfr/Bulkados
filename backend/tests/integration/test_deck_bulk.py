@@ -90,6 +90,30 @@ async def test_an_unknown_name_aborts_the_whole_bulk_update(client: AsyncClient)
 
 
 @pytest.mark.integration
+async def test_bulk_validation_lists_only_the_unknown_names(client: AsyncClient) -> None:
+    ada = await register(client, "ada")
+    group = await group_with_members(client, ada)
+    deck = await new_deck(client, group, ada)
+    await insert_card("Sol Ring")
+
+    response = await client.post(
+        f"/api/v1/decks/{deck['id']}/bulk/validate",
+        json={
+            "cards": [
+                {"name": "Sol Ring", "role": "main"},
+                {"name": "Carta Que Não Existe", "role": "main"},
+                {"name": "Outra Inexistente", "role": "main"},
+                {"name": "Carta Que Não Existe", "role": "main"},
+            ]
+        },
+        headers=bearer(ada["access_token"]),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"unknown": ["Carta Que Não Existe", "Outra Inexistente"]}
+
+
+@pytest.mark.integration
 async def test_removing_a_card_in_bulk_returns_it_to_the_bulk(client: AsyncClient) -> None:
     ada = await register(client, "ada")
     group = await group_with_members(client, ada)

@@ -47,6 +47,12 @@ class DeckBulkUpdate(BaseModel):
     cards: list[DeckBulkCard] = Field(max_length=1000)
 
 
+class DeckBulkValidation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unknown: list[str]
+
+
 class TakeCard(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

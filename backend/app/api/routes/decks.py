@@ -7,6 +7,7 @@ from app.schemas.copies import CopyRead
 from app.schemas.decks import (
     CommandersUpdate,
     DeckBulkUpdate,
+    DeckBulkValidation,
     DeckCopyCreate,
     DeckCreate,
     DeckDetail,
@@ -76,6 +77,17 @@ async def update_deck(
 @router.delete("/decks/{deck_id}", status_code=204)
 async def delete_deck(deck_id: UUID, user: CurrentUser, session: DbSession) -> None:
     await deck_service.delete_deck(session, user, deck_id)
+
+
+@router.post("/decks/{deck_id}/bulk/validate", response_model=DeckBulkValidation)
+async def validate_deck_cards(
+    deck_id: UUID,
+    body: DeckBulkUpdate,
+    user: CurrentUser,
+    session: DbSession,
+) -> DeckBulkValidation:
+    unknown = await deck_service.validate_deck_cards(session, user, deck_id, body)
+    return DeckBulkValidation(unknown=unknown)
 
 
 @router.put("/decks/{deck_id}/bulk", response_model=DeckDetail)

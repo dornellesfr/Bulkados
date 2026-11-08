@@ -228,6 +228,19 @@ async def create_deck_copies(
     return reads
 
 
+async def validate_deck_cards(
+    session: AsyncSession,
+    user: User,
+    deck_id: UUID,
+    body: DeckBulkUpdate,
+) -> list[str]:
+    """Os nomes da lista que não existem no catálogo, na ordem em que aparecem."""
+    await require_deck_owner(session, deck_id, user.id)
+    names = [item.name.strip() for item in body.cards if item.name.strip()]
+    resolved = await _resolve_bulk_cards(session, names)
+    return list(dict.fromkeys(name for name in names if name not in resolved))
+
+
 async def replace_deck_cards(
     session: AsyncSession,
     user: User,
