@@ -27,7 +27,7 @@ O servidor de desenvolvimento sobe em `http://localhost:3000`.
 
 ## Dados
 
-`VITE_API_URL` é obrigatório e aponta para a origem da API, sem path. Exemplo local: `http://127.0.0.1:8000`. O cliente prefixa `/api/v1`. Sem a variável, o app não sobe. O exemplo está em `.env.example`.
+`VITE_API_URL` aponta para a origem da API, sem path, e o cliente prefixa `/api/v1`. No desenvolvimento ela é obrigatória: exemplo em `.env.example` (`http://127.0.0.1:8000`). Em produção (build do Vite), sem a variável o app usa a própria origem — é o que mantém frontend e API no mesmo domínio na Vercel.
 
 O fluxo de uma tela com dados fica assim:
 

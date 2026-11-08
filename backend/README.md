@@ -89,6 +89,8 @@ A dependência `DbSession` abre a sessão do request e confirma a transação se
 
 O arquivo `.env.example` lista os valores locais. `DATABASE_URL` usa o driver `postgresql+asyncpg` e é o banco de desenvolvimento/produção. `TEST_DATABASE_URL` é usado só quando `ENVIRONMENT=test`; o padrão aponta para o Postgres local `magic_bulk_test`.
 
+`CORS_ORIGINS` aceita uma lista separada por vírgula de origens liberadas para o navegador. Em desenvolvimento, sem a variável, valem `http://localhost:3000` e `http://127.0.0.1:3000`. `DB_POOL_SIZE` e `DB_MAX_OVERFLOW` ajustam o pool (10 e 20 por padrão); em ambiente serverless use valores menores.
+
 Auth fica no Supabase. O backend precisa da URL, da chave anônima, da service role e de um JWT secret ou JWKS para validar o access token. A service role só existe no processo do backend.
 
 ## Administração
@@ -111,6 +113,8 @@ Em produção, defina `ENVIRONMENT=production` e `ADMIN_PASSWORD`. Se o `ENVIRON
 `GET /api/v1/catalog/cards?q=` sugere até 20 cartas do acervo local, por prefixo do nome em inglês ou português, sem diferenciar acento nem maiúscula. O acervo é uma cópia do catálogo do Scryfall (cerca de 34 mil cartas, uns 40 MB no banco).
 
 **Primeira carga.** O backend carrega o acervo sozinho na primeira subida, em segundo plano, sem atrasar a subida. Ela lê o arquivo `oracle_cards` (25 MB) e ~145 páginas de nomes em português. O Scryfall costuma devolver 429 no meio do caminho, e o backend espera o `Retry-After`, então a carga leva uns 7 minutos ou mais. Enquanto o acervo nunca foi carregado, a busca ainda consulta o Scryfall ao vivo.
+
+Em ambiente serverless (Vercel), defina `CATALOG_SYNC_ENABLED=false`: a função não fica viva o bastante para terminar a carga. Nesse caso, rode-a da sua máquina com `uv run python -m app.sync_catalog`. Veja [DEPLOY.md](../DEPLOY.md).
 
 **Atualização.** Depois da primeira carga, o backend confere a cada 6 horas se o intervalo venceu (90 dias, por padrão). Repetir a carga só atualiza: nunca troca o `id` nem apaga carta, então as cópias cadastradas seguem apontando para a carta certa. Uma carga que ficou "em andamento" por mais de 1 hora é dada como morta e pode ser refeita. Não edite arquivos `.py` enquanto ela roda no Compose: o `--reload` reinicia o backend e a carga recomeça.
 

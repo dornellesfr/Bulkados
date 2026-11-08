@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.deps import AdminUser, Auth, CatalogFeed, DbSession
+from app.core.config import get_settings
 from app.core.errors import DomainError
 from app.schemas.admin import (
     AdminCreateUserRequest,
@@ -45,6 +46,8 @@ async def start_catalog_sync(
     session: DbSession,
     _admin: AdminUser,
 ) -> CatalogSyncStatus:
+    if not get_settings().catalog_sync_enabled:
+        raise DomainError(503, "A atualização do catálogo está desligada neste ambiente.")
     if not await catalog_control.start_sync(source):
         raise DomainError(409, "A atualização do catálogo já está em andamento.")
     return await catalog_control.get_status(session)

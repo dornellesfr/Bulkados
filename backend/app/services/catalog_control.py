@@ -60,7 +60,8 @@ async def sync_if_due(source: CatalogSource) -> bool:
 
 async def run_scheduler() -> None:
     """Atualiza o acervo na primeira subida e sempre que o intervalo vence."""
-    if get_settings().environment == "test":
+    settings = get_settings()
+    if settings.environment == "test" or not settings.catalog_sync_enabled:
         return
     source = scryfall_client()
     while True:

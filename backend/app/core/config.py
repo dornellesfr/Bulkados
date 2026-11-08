@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     environment: Environment = "development"
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
+    cors_origins: str = ""
+    catalog_sync_enabled: bool = True
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/magic_bulk"
     test_database_url: str = DEFAULT_TEST_DATABASE_URL
     supabase_url: str = ""
@@ -40,6 +44,13 @@ class Settings(BaseSettings):
         if self.environment == "test":
             return self.test_database_url
         return self.database_url
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """Origens liberadas para o navegador, separadas por vírgula em CORS_ORIGINS."""
+        return [
+            origin.strip().rstrip("/") for origin in self.cors_origins.split(",") if origin.strip()
+        ]
 
     @field_validator("database_url")
     @classmethod
