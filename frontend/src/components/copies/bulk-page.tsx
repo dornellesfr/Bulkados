@@ -479,14 +479,16 @@ function ColorFilter({
               onToggle(color)
             }}
             className={cn(
-              'flex size-8 items-center justify-center rounded-full ring-1 ring-foreground/15 transition-colors hover:bg-muted',
-              active && 'bg-muted ring-2 ring-foreground/60',
+              'size-8 shrink-0 overflow-hidden rounded-full p-0 outline-none transition-all duration-150 focus-visible:scale-105 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50',
+              active
+                ? 'scale-110 opacity-100'
+                : 'opacity-50 hover:scale-105 hover:opacity-80',
             )}
           >
             <img
               src={colorSymbolUrl(color)}
               alt={colorNames[color]}
-              className="size-5"
+              className="block size-full rounded-full"
             />
           </button>
         )
