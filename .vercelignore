@@ -1,0 +1,14 @@
+# Arquivos locais: não sobem no deploy da Vercel.
+# Sem isso o Vite embute o VITE_API_URL do frontend/.env local no build.
+.env
+**/.env
+**/.env.local
+**/.env.*.local
+
+.vercel
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
