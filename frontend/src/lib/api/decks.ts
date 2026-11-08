@@ -88,6 +88,10 @@ export const deckBulkInputSchema = z.object({
   cards: z.array(deckBulkCardSchema).max(1000),
 })
 
+export const deckBulkValidationSchema = z.object({
+  unknown: z.array(z.string()),
+})
+
 export type DeckWarning = z.infer<typeof deckWarningSchema>
 export type DeckCard = z.infer<typeof deckCardSchema>
 export type DeckSummary = z.infer<typeof deckSummarySchema>
@@ -96,6 +100,7 @@ export type CreateDeckInput = z.infer<typeof createDeckInputSchema>
 export type UpdateDeckInput = z.infer<typeof updateDeckInputSchema>
 export type DeckBulkCard = z.infer<typeof deckBulkCardSchema>
 export type DeckBulkInput = z.infer<typeof deckBulkInputSchema>
+export type DeckBulkValidation = z.infer<typeof deckBulkValidationSchema>
 
 export const deckKeys = {
   all: ['decks'] as const,
@@ -167,6 +172,18 @@ export async function addDeckCopies(
     method: 'POST',
     body: JSON.stringify(payload),
   })
+}
+
+export async function validateDeckCards(deckId: string, input: DeckBulkInput) {
+  const payload = deckBulkInputSchema.parse(input)
+  return apiRequest(
+    `/decks/${deckId}/bulk/validate`,
+    deckBulkValidationSchema,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+  )
 }
 
 export async function replaceDeckCards(deckId: string, input: DeckBulkInput) {

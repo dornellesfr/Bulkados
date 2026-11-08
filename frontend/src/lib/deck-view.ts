@@ -148,8 +148,15 @@ export function buildBulkText(deck: DeckDetail) {
 
 function cleanBulkLine(line: string) {
   return line
-    .replace(/\s+\([A-Z0-9]{2,6}\)\s+\d+.*$/i, '')
-    .replace(/\s+\*[A-Z]\*\s*$/i, '')
+    .replace(/(?:\s+\*[A-Z0-9]+\*)+\s*$/i, '')
+    .replace(
+      /\s+\([A-Z0-9]{2,6}\)(?:\s+[A-Z0-9]+(?:-[A-Z0-9]+)*[a-z]?)?\s*$/,
+      '',
+    )
+    .replace(
+      /\s+\[[A-Z0-9]{2,6}\](?:\s+[A-Z0-9]+(?:-[A-Z0-9]+)*[a-z]?)?\s*$/,
+      '',
+    )
     .trim()
 }
 
@@ -171,7 +178,7 @@ export function parseBulkText(text: string): Array<DeckBulkCard> {
       continue
     }
 
-    const quantity = line.match(/^(\d+)\s*[xX]\s+(.+)$/)
+    const quantity = line.match(/^(\d+)\s*[xX]?\s+(.+)$/)
     const count = quantity ? Number.parseInt(quantity[1], 10) : 1
     const name = cleanBulkLine(quantity ? quantity[2] : line)
 
