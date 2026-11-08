@@ -77,6 +77,8 @@ de conexões do Aiven.
 **Não defina `VITE_API_URL`.** Em produção o frontend usa a própria origem
 (`window.location.origin`), o que também faz os previews chamarem a API do
 próprio preview. Se precisar apontar para outro host, defina a URL absoluta.
+O `.vercelignore` mantém os arquivos `.env` locais fora do upload da CLI: sem
+ele, o `frontend/.env` entra no build e o app passa a chamar `127.0.0.1`.
 
 ## 4. Deploy
 
